@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Product Requirements
 
-Status: implemented — 3.3.0 MVP released
+Status: implemented — 3.4.2 billing live-catalog release
 
 ## Product promise
 
@@ -79,7 +79,17 @@ AI is optional, not required for the MVP. A paid assistant may later:
 - suggest tag normalization or related tags;
 - classify ambiguous values for user review.
 
-AI must generate a proposed plan, never apply changes directly. The user must approve the plan and preview. Charge credits only for an explicit AI request, show estimated cost before sending data, minimize the sample sent, and disclose that note metadata leaves the vault. Deterministic rename, tag, and reorder operations remain available without credits.
+AI must generate a proposed plan, never apply changes directly. The user must approve the plan and preview. Charge credits only for an explicit AI request, show estimated cost before sending data, minimize the sample sent, and disclose that note metadata leaves the vault. Deterministic planning and preview remain local; applied write batches use the billing model below.
+
+## Billing model
+
+- Each local calendar day includes 3 free non-empty applied write batches.
+- After the daily free allowance, each successfully authorized non-empty write batch costs 1 purchased credit.
+- A preview, no-op plan, failed authorization, or rollback never consumes a credit.
+- Purchased credits are sold as one-time packs: $1/100 and $10/1,000.
+- The install device ID is generated once and persisted in local plugin data.
+- The local purchased-credit mirror is checked and reserved before a remote spend; the unsigned Constance browser relay is the authoritative debit and sync source.
+- Checkout and balance sync are available in settings using the provisioned live catalog price IDs.
 
 ## Useful post-MVP features
 
@@ -104,4 +114,6 @@ AI must generate a proposed plan, never apply changes directly. The user must ap
 - Tags are added idempotently and existing tags are preserved unless removal is explicit.
 - Schema reorder changes key order without changing values or note bodies.
 - Every changed note has recovery data and the most recent batch can be rolled back.
-- All core operations work offline and with AI disabled.
+- Core planning operations work offline and with AI disabled; paid apply authorization uses optional network access after the daily free allowance.
+- Billing never runs during preview or rollback and does not charge a no-op apply.
+- A paid apply batch is charged at most once, after the user reviews the preview and confirms apply.

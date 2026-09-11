@@ -13,6 +13,22 @@ The command `Tundra: Open frontmatter wrangler` and the ribbon wrench open six s
 5. **Apply** — process notes independently with progress, cancellation, stale-preview protection, and per-note error handling.
 6. **Review** — see the post-run summary, open the local operation log, or rollback the most recent batch.
 
+## Billing
+
+Tundra includes three free non-empty apply batches per local calendar day. After
+those are used, each non-empty, reviewed apply batch authorizes one purchased
+credit. Previewing, planning a no-op, and rolling back never consume credits.
+
+Purchased credits are one-time packs: $1 for 100 credits or $10 for 1,000
+credits. The settings tab stores a billing email for the receipt, shows the
+local mirror of the purchased balance, provides a manual balance sync, and
+opens the live Constance checkout using the provisioned Tundra price IDs.
+
+Billing uses Constance's unsigned browser-relay endpoints with the unique
+`tundra-frontmatter-wrangler` app ID. A random per-install device ID is stored
+in the plugin's local settings and sent as both `external_customer_id` and
+`machine_id`; no secret or credential is embedded in the plugin.
+
 ## Supported operations
 
 - Rename a top-level key. If both keys exist, choose keep existing, replace, merge, or skip. Array and object merges are deterministic; mixed scalar values are reported.
@@ -22,7 +38,7 @@ The command `Tundra: Open frontmatter wrangler` and the ribbon wrench open six s
 - Reorder a preferred top-level schema with move-up/move-down controls. Unknown keys retain their existing relative order and can be placed before or after the preferred keys.
 - Format-only reorder is intentionally separate from semantic operations.
 
-The MVP is limited to top-level properties. Nested schema paths, conditional transforms, scheduling, and AI suggestions are future work. No AI, network call, credential, or remote service is used by this plugin.
+The MVP is limited to top-level properties. Nested schema paths, conditional transforms, scheduling, and AI suggestions are future work. Deterministic planning and preview remain local; network access is used only for optional Constance balance synchronization and paid batch authorization.
 
 ## Safety model
 
@@ -30,7 +46,7 @@ Tundra parses frontmatter before planning. A missing or malformed frontmatter bl
 
 Comments, nested YAML, and other constructs outside the conservative top-level parser are skipped rather than risking lost user formatting.
 
-The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Representative inventory values are truncated to avoid exposing unnecessary note content.
+The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Representative inventory values are truncated to avoid exposing unnecessary note content. Billing stores only the device ID, checkout email, daily free-use counter, and purchased-credit mirror.
 
 ## Development
 
@@ -40,7 +56,9 @@ npm run check
 npm run build
 ```
 
-The public plugin source and runtime artifacts are in `publish/`. The built `publish/main.js` is generated and is not committed by default; Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`.
+This public repository contains the reviewable plugin source and release
+artifacts at its root. Obsidian installs `main.js`, `manifest.json`, and
+`styles.css`.
 
 ## License
 

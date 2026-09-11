@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TundraPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // core.ts
 var scalar = (value) => {
@@ -175,15 +175,179 @@ function planOperation(notes, operation) {
   });
 }
 
+// billing.ts
+var import_obsidian = require("obsidian");
+
+// billing-model.ts
+var FREE_USES_PER_DAY = 3;
+function localCalendarDate(date = /* @__PURE__ */ new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+function defaultBillingState() {
+  return {
+    deviceId: "",
+    billingEmail: "",
+    purchasedCredits: 0,
+    freeUsageDate: "",
+    freeUsesRemaining: FREE_USES_PER_DAY
+  };
+}
+function normalizeBillingState(state, today) {
+  const next = { ...defaultBillingState(), ...state != null ? state : {} };
+  if (next.freeUsageDate !== today) {
+    next.freeUsageDate = today;
+    next.freeUsesRemaining = FREE_USES_PER_DAY;
+  }
+  next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
+  next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
+  return next;
+}
+function claimLocalAllowance(state, today) {
+  const next = normalizeBillingState(state, today);
+  if (next.freeUsesRemaining > 0) {
+    next.freeUsesRemaining--;
+    return { state: next, source: "free" };
+  }
+  if (next.purchasedCredits > 0) {
+    next.purchasedCredits--;
+    return { state: next, source: "purchased" };
+  }
+  return { state: next, source: "remote" };
+}
+function restorePurchasedAllowance(state) {
+  return { ...state, purchasedCredits: Math.max(0, Math.floor(Number(state.purchasedCredits) || 0) + 1) };
+}
+function isBillableWriteBatch(changedCount) {
+  return Number.isFinite(changedCount) && changedCount > 0;
+}
+
+// billing.ts
+var CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
+var CONSTANCE_APP_ID = "tundra-frontmatter-wrangler";
+var TUNDRA_PRICE_IDS = {
+  usd001: "pri_01m28hmkzcn3cf9e04qq1s9jw6",
+  usd010: "pri_01m28hmmvr4zs9enh6tptd7gjy"
+};
+function makeDeviceId() {
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return `tundra-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+function ensureBillingState(state, now = /* @__PURE__ */ new Date()) {
+  const next = normalizeBillingState(state, localCalendarDate(now));
+  if (!next.deviceId) next.deviceId = makeDeviceId();
+  return next;
+}
+function generateEventId() {
+  const bytes = new Uint8Array(12);
+  window.crypto.getRandomValues(bytes);
+  return `evt_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+function readBalance(response) {
+  var _a, _b, _c;
+  return Math.max(0, Number((_c = (_b = (_a = response.json) == null ? void 0 : _a.data) == null ? void 0 : _b.credits) == null ? void 0 : _c.balance) || 0);
+}
+async function spendConstanceCredit(plugin) {
+  const state = plugin.settings.billing;
+  try {
+    const response = await (0, import_obsidian.requestUrl)({
+      url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/credits/spend`,
+      method: "POST",
+      throw: false,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: generateEventId() })
+    });
+    if (response.status === 402 || response.status === 404) return { kind: "insufficient" };
+    if (response.status < 200 || response.status >= 300) return { kind: "error" };
+    return { kind: "ok", balance: readBalance(response) };
+  } catch (error) {
+    console.warn("Tundra: Constance credit spend failed", error);
+    return { kind: "error" };
+  }
+}
+async function reserveUse(plugin) {
+  const today = localCalendarDate();
+  const current = ensureBillingState(plugin.settings.billing);
+  const claim = claimLocalAllowance(current, today);
+  plugin.settings.billing = claim.state;
+  if (claim.source === "free") {
+    await plugin.saveSettings();
+    return true;
+  }
+  if (claim.source === "remote") {
+    const sync = await syncBalance(plugin);
+    if (sync.kind !== "ok" || sync.balance < 1) {
+      new import_obsidian.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
+      return false;
+    }
+    const refreshed = claimLocalAllowance(plugin.settings.billing, today);
+    plugin.settings.billing = refreshed.state;
+    if (refreshed.source !== "purchased") {
+      new import_obsidian.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
+      return false;
+    }
+  }
+  await plugin.saveSettings();
+  const result = await spendConstanceCredit(plugin);
+  if (result.kind === "ok") {
+    plugin.settings.billing.purchasedCredits = result.balance;
+    await plugin.saveSettings();
+    return true;
+  }
+  if (result.kind === "error") plugin.settings.billing = restorePurchasedAllowance(plugin.settings.billing);
+  else plugin.settings.billing.purchasedCredits = 0;
+  await plugin.saveSettings();
+  new import_obsidian.Notice(result.kind === "insufficient" ? "Tundra: no purchased credits are available for this write batch." : "Tundra: billing could not be verified, so this write was not started.", 5e3);
+  return false;
+}
+function isBillableApply(changedCount) {
+  return isBillableWriteBatch(changedCount);
+}
+async function syncBalance(plugin) {
+  plugin.settings.billing = ensureBillingState(plugin.settings.billing);
+  try {
+    const response = await (0, import_obsidian.requestUrl)({
+      url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/entitlements`,
+      method: "POST",
+      throw: false,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: plugin.settings.billing.deviceId, machine_id: plugin.settings.billing.deviceId })
+    });
+    if (response.status < 200 || response.status >= 300) return { kind: "error" };
+    const balance = readBalance(response);
+    plugin.settings.billing.purchasedCredits = balance;
+    await plugin.saveSettings();
+    return { kind: "ok", balance };
+  } catch (error) {
+    console.warn("Tundra: Constance balance sync failed", error);
+    return { kind: "error" };
+  }
+}
+function openCheckout(plugin, tier) {
+  const priceId = TUNDRA_PRICE_IDS[tier];
+  const email = plugin.settings.billing.billingEmail.trim();
+  if (!email || !email.includes("@")) {
+    new import_obsidian.Notice("Enter a valid billing email in Tundra settings first.", 5e3);
+    return;
+  }
+  const params = new URLSearchParams({ app_id: CONSTANCE_APP_ID, price_id: priceId, email, external_customer_id: plugin.settings.billing.deviceId });
+  window.open(`${CONSTANCE_BASE_URL}/buy?${params.toString()}`, "_blank");
+}
+
 // main.ts
-var DEFAULT_SETTINGS = {};
-var TundraPlugin = class extends import_obsidian.Plugin {
+var DEFAULT_SETTINGS = { billing: defaultBillingState() };
+var TundraPlugin = class extends import_obsidian2.Plugin {
   constructor() {
     super(...arguments);
-    this.settings = DEFAULT_SETTINGS;
+    this.settings = { billing: defaultBillingState() };
   }
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings.billing = ensureBillingState(this.settings.billing);
+    await this.saveSettings();
     this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
     this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open());
     this.addSettingTab(new TundraSettingTab(this.app, this));
@@ -192,7 +356,7 @@ var TundraPlugin = class extends import_obsidian.Plugin {
     await this.saveData(this.settings);
   }
 };
-var TundraSettingTab = class extends import_obsidian.PluginSettingTab {
+var TundraSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -202,11 +366,26 @@ var TundraSettingTab = class extends import_obsidian.PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Offline-first metadata operations. Every write is journaled for rollback." });
-    new import_obsidian.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
-    if (this.plugin.settings.lastBatch) new import_obsidian.Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed \xB7 ${this.plugin.settings.lastBatch.createdAt}`).addButton((b) => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
+    new import_obsidian2.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
+    const billing = this.plugin.settings.billing;
+    new import_obsidian2.Setting(containerEl).setName("Billing email").setDesc("Used only for the one-time checkout receipt.").addText((t) => t.setPlaceholder("you@example.com").setValue(billing.billingEmail).onChange(async (value) => {
+      billing.billingEmail = value.trim();
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian2.Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today \xB7 ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton((button) => button.setButtonText("Sync balance").onClick(async () => {
+      button.setDisabled(true);
+      const result = await syncBalance(this.plugin);
+      new import_obsidian2.Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3e3 : 5e3);
+      this.display();
+    }));
+    const packs = new import_obsidian2.Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
+    packs.addButton((button) => button.setButtonText("Buy $1 (100 credits)").onClick(() => openCheckout(this.plugin, "usd001")));
+    packs.addButton((button) => button.setButtonText("Buy $10 (1,000 credits)").setCta().onClick(() => openCheckout(this.plugin, "usd010")));
+    containerEl.createEl("p", { cls: "tundra-note", text: `This install's billing device ID is saved locally and is not editable: ${billing.deviceId.slice(0, 18)}\u2026` });
+    if (this.plugin.settings.lastBatch) new import_obsidian2.Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed \xB7 ${this.plugin.settings.lastBatch.createdAt}`).addButton((b) => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
   }
 };
-var WranglerModal = class extends import_obsidian.Modal {
+var WranglerModal = class extends import_obsidian2.Modal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -257,22 +436,22 @@ var WranglerModal = class extends import_obsidian.Modal {
   }
   footer(parent, next, action, back = true) {
     const f = parent.createDiv("tundra-footer");
-    if (back) new import_obsidian.ButtonComponent(f).setButtonText("Back").onClick(() => {
+    if (back) new import_obsidian2.ButtonComponent(f).setButtonText("Back").onClick(() => {
       this.step--;
       this.render();
     });
-    new import_obsidian.ButtonComponent(f).setButtonText(next).setCta().onClick(action);
+    new import_obsidian2.ButtonComponent(f).setButtonText(next).setCta().onClick(action);
   }
   renderSelect(parent) {
     parent.createEl("p", { text: "Choose a safe working set. Selection stays local to this vault." });
-    new import_obsidian.Setting(parent).setName("Folder").setDesc("Leave blank for the whole vault").addText((t) => t.setPlaceholder("Projects/2026").setValue(this.folder).onChange((v) => {
+    new import_obsidian2.Setting(parent).setName("Folder").setDesc("Leave blank for the whole vault").addText((t) => t.setPlaceholder("Projects/2026").setValue(this.folder).onChange((v) => {
       this.folder = v.trim();
     }));
-    new import_obsidian.Setting(parent).setName("Include subfolders").addToggle((t) => t.setValue(this.recursive).onChange((v) => this.recursive = v));
-    new import_obsidian.Setting(parent).setName("Path or text query").setDesc("Matches the note path or its body").addText((t) => t.setPlaceholder("meeting").setValue(this.query).onChange((v) => this.query = v));
-    new import_obsidian.Setting(parent).setName("Property filter").setDesc("Exact top-level property value").addText((t) => t.setPlaceholder("status").setValue(this.filterKey).onChange((v) => this.filterKey = v)).addText((t) => t.setPlaceholder("active").setValue(this.filterValue).onChange((v) => this.filterValue = v));
+    new import_obsidian2.Setting(parent).setName("Include subfolders").addToggle((t) => t.setValue(this.recursive).onChange((v) => this.recursive = v));
+    new import_obsidian2.Setting(parent).setName("Path or text query").setDesc("Matches the note path or its body").addText((t) => t.setPlaceholder("meeting").setValue(this.query).onChange((v) => this.query = v));
+    new import_obsidian2.Setting(parent).setName("Property filter").setDesc("Exact top-level property value").addText((t) => t.setPlaceholder("status").setValue(this.filterKey).onChange((v) => this.filterKey = v)).addText((t) => t.setPlaceholder("active").setValue(this.filterValue).onChange((v) => this.filterValue = v));
     const run = parent.createDiv("tundra-actions");
-    new import_obsidian.ButtonComponent(run).setButtonText("Build inventory").setCta().onClick(async () => {
+    new import_obsidian2.ButtonComponent(run).setButtonText("Build inventory").setCta().onClick(async () => {
       await this.selectFiles();
       this.step = 1;
       this.render();
@@ -346,7 +525,7 @@ var WranglerModal = class extends import_obsidian.Modal {
   renderConfigure(parent) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     parent.createEl("h3", { text: "Configure operation" });
-    const setting = new import_obsidian.Setting(parent).setName("Operation").setDesc("Only top-level properties are changed");
+    const setting = new import_obsidian2.Setting(parent).setName("Operation").setDesc("Only top-level properties are changed");
     setting.addDropdown((d) => d.addOptions({ rename: "Rename property", remove: "Remove property (destructive)", "add-tags": "Add tags", "remove-tags": "Remove tags", "replace-tag": "Replace tag", "normalize-tags": "Normalize tags by exact rule", reorder: "Reorder schema", format: "Format only" }).setValue(this.operation.kind).onChange((v) => {
       this.operation = { kind: v, collision: "skip" };
       this.render();
@@ -355,7 +534,7 @@ var WranglerModal = class extends import_obsidian.Modal {
       this.textSetting(parent, "Property key", "oldKey", (_a = this.operation.oldKey) != null ? _a : "");
       if (this.operation.kind === "rename") {
         this.textSetting(parent, "New key", "newKey", (_b = this.operation.newKey) != null ? _b : "");
-        new import_obsidian.Setting(parent).setName("Collision handling").addDropdown((d) => {
+        new import_obsidian2.Setting(parent).setName("Collision handling").addDropdown((d) => {
           var _a2;
           return d.addOptions({ keep: "Keep existing new key", replace: "Replace with old value", merge: "Merge values", skip: "Skip collided note" }).setValue((_a2 = this.operation.collision) != null ? _a2 : "skip").onChange((v) => this.operation.collision = v);
         });
@@ -370,7 +549,7 @@ var WranglerModal = class extends import_obsidian.Modal {
       this.textSetting(parent, "Optional namespace/prefix", "namespace", (_h = this.operation.namespace) != null ? _h : "");
     } else if (this.operation.kind === "reorder") {
       this.textSetting(parent, "Preferred keys (comma separated)", "order", ((_i = this.operation.order) != null ? _i : []).join(", "));
-      new import_obsidian.Setting(parent).setName("Unknown keys").addDropdown((d) => {
+      new import_obsidian2.Setting(parent).setName("Unknown keys").addDropdown((d) => {
         var _a2;
         return d.addOptions({ after: "Keep after preferred keys", before: "Keep before preferred keys" }).setValue((_a2 = this.operation.unknownPosition) != null ? _a2 : "after").onChange((v) => this.operation.unknownPosition = v);
       });
@@ -382,7 +561,7 @@ var WranglerModal = class extends import_obsidian.Modal {
     });
   }
   textSetting(parent, name, key, value) {
-    new import_obsidian.Setting(parent).setName(name).addText((t) => t.setValue(value).onChange((v) => {
+    new import_obsidian2.Setting(parent).setName(name).addText((t) => t.setValue(value).onChange((v) => {
       if (key === "tags" || key === "order") this.operation[key] = v.split(",").map((s) => s.trim()).filter(Boolean);
       else this.operation[key] = v;
     }));
@@ -397,8 +576,10 @@ var WranglerModal = class extends import_obsidian.Modal {
     var _a;
     const changed = this.plans.filter((p) => p.status === "changed");
     const skipped = this.plans.filter((p) => p.status === "skipped");
+    const unchanged = this.plans.filter((p) => p.status === "unchanged");
     parent.createEl("h3", { text: "Preview and confirmation" });
-    parent.createEl("p", { text: `${changed.length} will change \xB7 ${skipped.length} skipped \xB7 ${this.plans.filter((p) => p.status === "unchanged").length} unchanged` });
+    parent.createEl("p", { text: `${changed.length} will change \xB7 ${skipped.length} skipped \xB7 ${unchanged.length} unchanged` });
+    if (!changed.length) parent.createEl("p", { cls: "tundra-note", text: "Nothing will be written. Previewing a no-op does not use free or purchased credits." });
     const details = parent.createEl("details");
     details.open = true;
     details.createEl("summary", { text: "Inspect and review every affected note" });
@@ -416,17 +597,18 @@ var WranglerModal = class extends import_obsidian.Modal {
 + after: ${((_a = plan.after) != null ? _a : "").slice(0, 700)}` });
       }
     }
-    parent.createEl("p", { cls: "tundra-note", text: "Apply writes one note at a time. Original content for each changed note is stored in the most recent recovery journal." });
+    parent.createEl("p", { cls: "tundra-note", text: "Apply writes one note at a time. One free or purchased credit is authorized only when this preview contains at least one reviewed change." });
     const f = parent.createDiv("tundra-footer");
-    new import_obsidian.ButtonComponent(f).setButtonText("Back").onClick(() => {
+    new import_obsidian2.ButtonComponent(f).setButtonText("Back").onClick(() => {
       this.step = 2;
       this.render();
     });
-    const apply = new import_obsidian.ButtonComponent(f).setButtonText("Confirm and apply").setCta();
-    apply.setDisabled(!changed.every((p) => this.reviewed.has(p.path)));
+    const apply = new import_obsidian2.ButtonComponent(f).setButtonText("Confirm and apply").setCta();
+    apply.setDisabled(!isBillableApply(changed.length) || !changed.every((p) => this.reviewed.has(p.path)));
     apply.onClick(() => {
-      if (!changed.every((p) => this.reviewed.has(p.path))) return;
+      if (!isBillableApply(changed.length) || !changed.every((p) => this.reviewed.has(p.path))) return;
       if (this.operation.kind === "remove" && !window.confirm(`Remove property ${this.operation.oldKey} from ${changed.length} notes? This changes note files.`)) return;
+      this.cancelled = false;
       this.step = 4;
       this.render();
     });
@@ -434,9 +616,23 @@ var WranglerModal = class extends import_obsidian.Modal {
   renderApply(parent) {
     parent.createEl("h3", { text: "Applying changes" });
     const progress = parent.createEl("progress", { attr: { max: String(this.plans.length), value: "0" } });
-    const status = parent.createEl("p", { text: "Starting\u2026", cls: "tundra-status" });
-    new import_obsidian.ButtonComponent(parent).setButtonText("Cancel after current note").onClick(() => this.cancelled = true);
+    const status = parent.createEl("p", { text: "Authorizing write batch\u2026", cls: "tundra-status" });
+    const cancel = new import_obsidian2.ButtonComponent(parent).setButtonText("Cancel after current note");
+    cancel.setDisabled(true);
+    const back = new import_obsidian2.ButtonComponent(parent).setButtonText("Back to preview").onClick(() => {
+      this.step = 3;
+      this.render();
+    });
+    back.setDisabled(true);
     void (async () => {
+      const authorized = await reserveUse(this.plugin);
+      if (!authorized) {
+        status.setText("Billing authorization failed. No notes were changed.");
+        cancel.setDisabled(true);
+        back.setDisabled(false);
+        return;
+      }
+      cancel.setDisabled(false);
       const batch = { id: crypto.randomUUID(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
       for (let i = 0; i < this.plans.length; i++) {
         if (this.cancelled) {
@@ -451,7 +647,7 @@ var WranglerModal = class extends import_obsidian.Modal {
           continue;
         }
         const file = this.app.vault.getAbstractFileByPath(p.path);
-        if (!(file instanceof import_obsidian.TFile)) {
+        if (!(file instanceof import_obsidian2.TFile)) {
           batch.summary.failed++;
           continue;
         }
@@ -472,6 +668,7 @@ var WranglerModal = class extends import_obsidian.Modal {
       this.step = 5;
       this.render();
     })();
+    cancel.onClick(() => this.cancelled = true);
   }
   renderReview(parent) {
     const batch = this.plugin.settings.lastBatch;
@@ -481,18 +678,18 @@ var WranglerModal = class extends import_obsidian.Modal {
       return;
     }
     parent.createEl("p", { text: `${batch.summary.changed} changed \xB7 ${batch.summary.skipped} skipped \xB7 ${batch.summary.failed} failed \xB7 ${batch.summary.unchanged} unchanged` });
-    new import_obsidian.ButtonComponent(parent).setButtonText("Rollback most recent batch").onClick(async () => {
+    new import_obsidian2.ButtonComponent(parent).setButtonText("Rollback most recent batch").onClick(async () => {
       await rollback(this.app, this.plugin);
       this.render();
     });
-    new import_obsidian.ButtonComponent(parent).setButtonText("Open operation log").onClick(() => new LogModal(this.app, batch).open());
+    new import_obsidian2.ButtonComponent(parent).setButtonText("Open operation log").onClick(() => new LogModal(this.app, batch).open());
     this.footer(parent, "Done", () => this.close(), false);
   }
 };
 async function rollback(app, plugin) {
   const batch = plugin.settings.lastBatch;
   if (!batch) {
-    new import_obsidian.Notice("No recovery journal is available.");
+    new import_obsidian2.Notice("No recovery journal is available.");
     return;
   }
   if (!window.confirm(`Restore ${batch.files.length} note(s) from the most recent journal?`)) return;
@@ -500,7 +697,7 @@ async function rollback(app, plugin) {
   let skipped = 0;
   for (const entry of batch.files) {
     const file = app.vault.getAbstractFileByPath(entry.path);
-    if (!(file instanceof import_obsidian.TFile)) {
+    if (!(file instanceof import_obsidian2.TFile)) {
       skipped++;
       continue;
     }
@@ -516,9 +713,9 @@ async function rollback(app, plugin) {
       skipped++;
     }
   }
-  new import_obsidian.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
+  new import_obsidian2.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
 }
-var LogModal = class extends import_obsidian.Modal {
+var LogModal = class extends import_obsidian2.Modal {
   constructor(app, batch) {
     super(app);
     this.batch = batch;

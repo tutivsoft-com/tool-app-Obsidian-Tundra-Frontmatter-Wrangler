@@ -1,7 +1,7 @@
 {
   "id": "tundra-frontmatter-wrangler",
   "name": "Tundra Frontmatter Wrangler",
-  "version": "3.3.0",
+  "version": "3.4.2",
   "minAppVersion": "1.5.0",
   "description": "Safely preview, apply, and roll back bulk frontmatter and property changes offline.",
   "author": "Rahul",

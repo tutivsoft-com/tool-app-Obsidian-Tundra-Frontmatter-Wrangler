@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.4.2 — 2026-09-11 — Tundra release
+
+- Promoted the live Tundra billing catalog into the final 3.4.2 source and publish release surfaces.
+
+## 3.4.1 — 2026-09-11 — Billing live catalog
+
+- Activated the provisioned Tundra Paddle price IDs for the $1/100 and $10/1,000 one-time credit packs across source and publish artifacts.
+
+## 3.4.0 — Billing
+
+- Added three free, non-empty apply batches per local calendar day.
+- Added one purchased credit per authorized non-empty apply batch, with local credit mirroring and unsigned Constance browser-relay sync/spend.
+- Added persisted install billing identity, checkout buttons for the $1/100 and $10/1,000 one-time packs, and settings balance sync.
+- Kept preview, no-op, and rollback flows free; wired checkout to the provisioned live price IDs.
+
 ## 3.3.0 — MVP
 
 - Added the Select → Inspect → Configure → Preview → Apply → Review workflow.
