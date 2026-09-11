@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Product Requirements
 
-Status: planning
+Status: implemented — 3.3.0 MVP released
 
 ## Product promise
 
@@ -105,4 +105,3 @@ AI must generate a proposed plan, never apply changes directly. The user must ap
 - Schema reorder changes key order without changing values or note bodies.
 - Every changed note has recovery data and the most recent batch can be rolled back.
 - All core operations work offline and with AI disabled.
-
