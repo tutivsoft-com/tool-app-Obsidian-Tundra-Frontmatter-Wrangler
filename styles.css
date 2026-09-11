@@ -1,0 +1,15 @@
+.tundra-modal { width: min(900px, 92vw); }
+.tundra-header { font-size: 1.35em; font-weight: 700; margin-bottom: 1em; }
+.tundra-steps { display: flex; flex-wrap: wrap; gap: .35em; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: .75em; }
+.tundra-steps button { color: var(--text-muted); background: transparent; border: 0; padding: .4em .55em; }
+.tundra-steps button.is-active { color: var(--text-accent); font-weight: 700; border-bottom: 2px solid var(--interactive-accent); }
+.tundra-body { padding-top: 1em; }
+.tundra-checklist { max-height: 300px; overflow: auto; border: 1px solid var(--background-modifier-border); padding: .5em; }
+.tundra-check-row { padding: .25em; }
+.tundra-footer { display: flex; justify-content: flex-end; gap: .5em; margin-top: 1.25em; }
+.tundra-warning { color: var(--text-error); }
+.tundra-diffs pre { white-space: pre-wrap; max-height: 260px; overflow: auto; background: var(--background-secondary); padding: .75em; }
+.tundra-note { color: var(--text-muted); }
+.tundra-body progress { width: 100%; margin: 1em 0; }
+.tundra-inventory { width: 100%; border-collapse: collapse; margin: 1em 0; }
+.tundra-inventory th, .tundra-inventory td { text-align: left; padding: .35em; border-bottom: 1px solid var(--background-modifier-border); vertical-align: top; }
