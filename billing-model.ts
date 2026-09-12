@@ -6,6 +6,7 @@ export interface BillingState {
   purchasedCredits: number;
   freeUsageDate: string;
   freeUsesRemaining: number;
+  pendingCreditSpends: string[];
 }
 
 export type LocalCreditSource = "free" | "purchased" | "remote";
@@ -24,6 +25,7 @@ export function defaultBillingState(): BillingState {
     purchasedCredits: 0,
     freeUsageDate: "",
     freeUsesRemaining: FREE_USES_PER_DAY,
+    pendingCreditSpends: [],
   };
 }
 
@@ -35,6 +37,7 @@ export function normalizeBillingState(state: Partial<BillingState> | undefined, 
   }
   next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
+  next.pendingCreditSpends = [...new Set((next.pendingCreditSpends ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
   return next;
 }
 

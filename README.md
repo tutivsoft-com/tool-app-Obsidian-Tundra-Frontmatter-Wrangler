@@ -56,9 +56,7 @@ npm run check
 npm run build
 ```
 
-This public repository contains the reviewable plugin source and release
-artifacts at its root. Obsidian installs `main.js`, `manifest.json`, and
-`styles.css`.
+The public plugin source and runtime artifacts are in `publish/`. The built `publish/main.js` is generated and is not committed by default; Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`.
 
 ## License
 

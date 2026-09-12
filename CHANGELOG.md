@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.4 - 2026-09-12
+
+- Incremented and synchronized the canonical, package, manifest, and publish version surfaces after the billing rollout. No runtime behavior changed in this metadata release.
+
+
 ## 3.4.2 — 2026-09-11 — Tundra release
 
 - Promoted the live Tundra billing catalog into the final 3.4.2 source and publish release surfaces.

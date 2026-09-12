@@ -1,8 +1,13 @@
-# Tundra Frontmatter Wrangler 3.4.2
+# Tundra Frontmatter Wrangler 3.4.4
+
+## 3.4.4 - 2026-09-12
+
+Metadata-only release bump: canonical, package, manifest, and publish version surfaces are synchronized. No runtime behavior changed.
+
 
 ## 2026-09-11 — Tundra release and live billing
 
-This patch release publishes the completed Tundra billing flow with the live Paddle catalog IDs for the $1/100 and $10/1,000 one-time packs. Source, publish, and public-repository release surfaces are synchronized at 3.4.2; preview, no-op, and rollback operations remain free.
+This release carries the synchronized Tundra source, publish, and public-repository surfaces at 3.4.4. The live Paddle catalog IDs for the $1/100 and $10/1,000 one-time packs remain configured; preview, no-op, and rollback operations remain free.
 
 ## 2026-09-11 — Billing live catalog
 

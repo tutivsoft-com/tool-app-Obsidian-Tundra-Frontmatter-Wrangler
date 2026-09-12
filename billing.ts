@@ -44,13 +44,13 @@ function readBalance(response: { json?: any }): number {
   return Math.max(0, Number(response.json?.data?.credits?.balance) || 0);
 }
 
-async function spendConstanceCredit(plugin: TundraPlugin): Promise<SpendResult> {
+async function spendConstanceCredit(plugin: TundraPlugin, stableEventId: string): Promise<SpendResult> {
   const state = plugin.settings.billing;
   try {
     const response = await requestUrl({
       url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/credits/spend`, method: "POST", throw: false,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: generateEventId() }),
+      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: stableEventId }),
     });
     if (response.status === 402 || response.status === 404) return { kind: "insufficient" };
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
@@ -58,7 +58,20 @@ async function spendConstanceCredit(plugin: TundraPlugin): Promise<SpendResult> 
   } catch (error) { console.warn("Tundra: Constance credit spend failed", error); return { kind: "error" }; }
 }
 
-export async function reserveUse(plugin: TundraPlugin): Promise<boolean> {
+export type UseCommitResult = { kind: "committed" } | { kind: "pending" } | { kind: "insufficient" };
+export interface UseReservation { source: "free" | "purchased"; commit(): Promise<UseCommitResult>; rollback(): Promise<void>; }
+
+export async function retryPendingCreditSpends(plugin: TundraPlugin): Promise<void> {
+  for (const stableEventId of [...plugin.settings.billing.pendingCreditSpends]) {
+    const result = await spendConstanceCredit(plugin, stableEventId);
+    if (result.kind === "error") break;
+    plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
+    plugin.settings.billing.purchasedCredits = result.kind === "insufficient" ? 0 : result.balance;
+    await plugin.saveSettings();
+  }
+}
+
+export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation | null> {
   const today = localCalendarDate();
   const current = ensureBillingState(plugin.settings.billing);
   const claim = claimLocalAllowance(current, today);
@@ -66,41 +79,50 @@ export async function reserveUse(plugin: TundraPlugin): Promise<boolean> {
 
   if (claim.source === "free") {
     await plugin.saveSettings();
-    return true;
+    return { source: "free", commit: async () => ({ kind: "committed" }), rollback: async () => { plugin.settings.billing = ensureBillingState(plugin.settings.billing); plugin.settings.billing.freeUsesRemaining++; await plugin.saveSettings(); } };
   }
 
   // A zero mirror is not an authorization to spend. Refresh it once so a
   // purchase made on the checkout page can be used without requiring a
-  // plugin reload. The remote spend remains the authoritative debit.
+  // plugin reload. The remote spend is deferred until a write succeeds.
   if (claim.source === "remote") {
     const sync = await syncBalance(plugin);
     if (sync.kind !== "ok" || sync.balance < 1) {
       new Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5000);
-      return false;
+      return null;
     }
     const refreshed = claimLocalAllowance(plugin.settings.billing, today);
     plugin.settings.billing = refreshed.state;
     if (refreshed.source !== "purchased") {
       new Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5000);
-      return false;
+      return null;
     }
   }
 
+  const stableEventId = generateEventId();
+  plugin.settings.billing.pendingCreditSpends.push(stableEventId);
   await plugin.saveSettings();
-  const result = await spendConstanceCredit(plugin);
-  if (result.kind === "ok") {
-    plugin.settings.billing.purchasedCredits = result.balance;
-    await plugin.saveSettings();
-    return true;
-  }
-
-  // The local mirror was reserved optimistically. Put it back on a
-  // transient failure; a confirmed insufficient response clears it.
-  if (result.kind === "error") plugin.settings.billing = restorePurchasedAllowance(plugin.settings.billing);
-  else plugin.settings.billing.purchasedCredits = 0;
-  await plugin.saveSettings();
-  new Notice(result.kind === "insufficient" ? "Tundra: no purchased credits are available for this write batch." : "Tundra: billing could not be verified, so this write was not started.", 5000);
-  return false;
+  let settled = false;
+  return {
+    source: "purchased",
+    commit: async () => {
+      if (settled) return { kind: "committed" };
+      const result = await spendConstanceCredit(plugin, stableEventId);
+      if (result.kind === "error") return { kind: "pending" };
+      settled = true;
+      plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
+      if (result.kind === "insufficient") plugin.settings.billing.purchasedCredits = 0;
+      else plugin.settings.billing.purchasedCredits = result.balance;
+      await plugin.saveSettings();
+      return result.kind === "insufficient" ? { kind: "insufficient" } : { kind: "committed" };
+    },
+    rollback: async () => {
+      if (settled) return;
+      plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
+      plugin.settings.billing = restorePurchasedAllowance(plugin.settings.billing);
+      await plugin.saveSettings();
+    },
+  };
 }
 
 export function isBillableApply(changedCount: number): boolean {

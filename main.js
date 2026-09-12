@@ -192,10 +192,12 @@ function defaultBillingState() {
     billingEmail: "",
     purchasedCredits: 0,
     freeUsageDate: "",
-    freeUsesRemaining: FREE_USES_PER_DAY
+    freeUsesRemaining: FREE_USES_PER_DAY,
+    pendingCreditSpends: []
   };
 }
 function normalizeBillingState(state, today) {
+  var _a;
   const next = { ...defaultBillingState(), ...state != null ? state : {} };
   if (next.freeUsageDate !== today) {
     next.freeUsageDate = today;
@@ -203,6 +205,7 @@ function normalizeBillingState(state, today) {
   }
   next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
+  next.pendingCreditSpends = [...new Set(((_a = next.pendingCreditSpends) != null ? _a : []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
   return next;
 }
 function claimLocalAllowance(state, today) {
@@ -250,7 +253,7 @@ function readBalance(response) {
   var _a, _b, _c;
   return Math.max(0, Number((_c = (_b = (_a = response.json) == null ? void 0 : _a.data) == null ? void 0 : _b.credits) == null ? void 0 : _c.balance) || 0);
 }
-async function spendConstanceCredit(plugin) {
+async function spendConstanceCredit(plugin, stableEventId) {
   const state = plugin.settings.billing;
   try {
     const response = await (0, import_obsidian.requestUrl)({
@@ -258,7 +261,7 @@ async function spendConstanceCredit(plugin) {
       method: "POST",
       throw: false,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: generateEventId() })
+      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: stableEventId })
     });
     if (response.status === 402 || response.status === 404) return { kind: "insufficient" };
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
@@ -268,6 +271,15 @@ async function spendConstanceCredit(plugin) {
     return { kind: "error" };
   }
 }
+async function retryPendingCreditSpends(plugin) {
+  for (const stableEventId of [...plugin.settings.billing.pendingCreditSpends]) {
+    const result = await spendConstanceCredit(plugin, stableEventId);
+    if (result.kind === "error") break;
+    plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
+    plugin.settings.billing.purchasedCredits = result.kind === "insufficient" ? 0 : result.balance;
+    await plugin.saveSettings();
+  }
+}
 async function reserveUse(plugin) {
   const today = localCalendarDate();
   const current = ensureBillingState(plugin.settings.billing);
@@ -275,33 +287,49 @@ async function reserveUse(plugin) {
   plugin.settings.billing = claim.state;
   if (claim.source === "free") {
     await plugin.saveSettings();
-    return true;
+    return { source: "free", commit: async () => ({ kind: "committed" }), rollback: async () => {
+      plugin.settings.billing = ensureBillingState(plugin.settings.billing);
+      plugin.settings.billing.freeUsesRemaining++;
+      await plugin.saveSettings();
+    } };
   }
   if (claim.source === "remote") {
     const sync = await syncBalance(plugin);
     if (sync.kind !== "ok" || sync.balance < 1) {
       new import_obsidian.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
-      return false;
+      return null;
     }
     const refreshed = claimLocalAllowance(plugin.settings.billing, today);
     plugin.settings.billing = refreshed.state;
     if (refreshed.source !== "purchased") {
       new import_obsidian.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
-      return false;
+      return null;
     }
   }
+  const stableEventId = generateEventId();
+  plugin.settings.billing.pendingCreditSpends.push(stableEventId);
   await plugin.saveSettings();
-  const result = await spendConstanceCredit(plugin);
-  if (result.kind === "ok") {
-    plugin.settings.billing.purchasedCredits = result.balance;
-    await plugin.saveSettings();
-    return true;
-  }
-  if (result.kind === "error") plugin.settings.billing = restorePurchasedAllowance(plugin.settings.billing);
-  else plugin.settings.billing.purchasedCredits = 0;
-  await plugin.saveSettings();
-  new import_obsidian.Notice(result.kind === "insufficient" ? "Tundra: no purchased credits are available for this write batch." : "Tundra: billing could not be verified, so this write was not started.", 5e3);
-  return false;
+  let settled = false;
+  return {
+    source: "purchased",
+    commit: async () => {
+      if (settled) return { kind: "committed" };
+      const result = await spendConstanceCredit(plugin, stableEventId);
+      if (result.kind === "error") return { kind: "pending" };
+      settled = true;
+      plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
+      if (result.kind === "insufficient") plugin.settings.billing.purchasedCredits = 0;
+      else plugin.settings.billing.purchasedCredits = result.balance;
+      await plugin.saveSettings();
+      return result.kind === "insufficient" ? { kind: "insufficient" } : { kind: "committed" };
+    },
+    rollback: async () => {
+      if (settled) return;
+      plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
+      plugin.settings.billing = restorePurchasedAllowance(plugin.settings.billing);
+      await plugin.saveSettings();
+    }
+  };
 }
 function isBillableApply(changedCount) {
   return isBillableWriteBatch(changedCount);
@@ -348,6 +376,7 @@ var TundraPlugin = class extends import_obsidian2.Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.settings.billing = ensureBillingState(this.settings.billing);
     await this.saveSettings();
+    void retryPendingCreditSpends(this);
     this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
     this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open());
     this.addSettingTab(new TundraSettingTab(this.app, this));
@@ -625,8 +654,8 @@ var WranglerModal = class extends import_obsidian2.Modal {
     });
     back.setDisabled(true);
     void (async () => {
-      const authorized = await reserveUse(this.plugin);
-      if (!authorized) {
+      const reservation = await reserveUse(this.plugin);
+      if (!reservation) {
         status.setText("Billing authorization failed. No notes were changed.");
         cancel.setDisabled(true);
         back.setDisabled(false);
@@ -663,6 +692,12 @@ var WranglerModal = class extends import_obsidian2.Modal {
         } catch (e) {
           batch.summary.failed++;
         }
+      }
+      if (batch.summary.changed > 0) {
+        const billingResult = await reservation.commit();
+        if (billingResult.kind === "pending") new import_obsidian2.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
+      } else {
+        await reservation.rollback();
       }
       await this.plugin.saveData(Object.assign(this.plugin.settings, { lastBatch: batch }));
       this.step = 5;
