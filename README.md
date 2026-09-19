@@ -2,6 +2,8 @@
 
 Tundra is an offline-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. It keeps the common path simple: select notes, inspect the inventory, configure one deterministic operation, preview it, apply it, and review the result.
 
+Current release: `3.4.5` (the canonical version in `VERSION` and `manifest.json`).
+
 ## MVP workflow
 
 The command `Tundra: Open frontmatter wrangler` and the ribbon wrench open six steps:
@@ -56,7 +58,7 @@ npm run check
 npm run build
 ```
 
-The public plugin source and runtime artifacts are in `publish/`. The built `publish/main.js` is generated and is not committed by default; Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`.
+The public plugin source and release artifacts are kept at the repository root: `main.ts`, `core.ts`, `billing.ts`, `main.js`, `manifest.json`, and `styles.css`. Obsidian installs the root `main.js`, `manifest.json`, and `styles.css` files from the published repository.
 
 ## License
 

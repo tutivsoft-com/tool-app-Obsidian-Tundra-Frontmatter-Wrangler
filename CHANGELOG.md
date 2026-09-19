@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.5 - 2026-09-13
+
+- Synchronized the public release version surfaces to `3.4.5` in `VERSION` and `manifest.json`. Runtime behavior is unchanged.
+
 ## 3.4.4 - 2026-09-12
 
 - Incremented and synchronized the canonical, package, manifest, and publish version surfaces after the billing rollout. No runtime behavior changed in this metadata release.

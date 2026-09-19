@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Product Requirements
 
-Status: implemented — 3.4.4 billing live-catalog release
+Status: implemented — 3.4.5 public release; billing live-catalog behavior is unchanged
 
 ## Product promise
 
