@@ -1,8 +1,9 @@
 # Tundra Frontmatter Wrangler 3.4.5
 
-## 3.4.5 - 2026-09-13
+## 3.4.5 - 2026-09-20
 
-This metadata-only public release synchronizes the canonical version and Obsidian manifest to `3.4.5`. The billing and frontmatter-wrangling behavior is unchanged from 3.4.4.
+Metadata-only release: synchronized the source and public bundle version
+surfaces for the next Obsidian Community release.
 
 ## 3.4.4 - 2026-09-12
 

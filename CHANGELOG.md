@@ -1,8 +1,9 @@
 # Changelog
 
-## 3.4.5 - 2026-09-13
+## 3.4.5 - 2026-09-20
 
-- Synchronized the public release version surfaces to `3.4.5` in `VERSION` and `manifest.json`. Runtime behavior is unchanged.
+- Synchronized the Tundra source and publish version surfaces and prepared the
+  next source-inclusive TutivSoft release.
 
 ## 3.4.4 - 2026-09-12
 
