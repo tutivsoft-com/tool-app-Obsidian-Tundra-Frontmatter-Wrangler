@@ -1,5 +1,7 @@
 # Tundra Frontmatter Wrangler
 
+Version: `3.4.8`
+
 Tundra is an offline-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. It keeps the common path simple: select notes, inspect the inventory, configure one deterministic operation, preview it, apply it, and review the result.
 
 ## MVP workflow
