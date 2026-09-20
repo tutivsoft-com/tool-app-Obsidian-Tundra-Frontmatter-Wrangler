@@ -3,6 +3,8 @@ export const FREE_USES_PER_DAY = 3;
 export interface BillingState {
   deviceId: string;
   billingEmail: string;
+  billingAccessToken: string;
+  billingAccountLinked: boolean;
   purchasedCredits: number;
   freeUsageDate: string;
   freeUsesRemaining: number;
@@ -22,6 +24,8 @@ export function defaultBillingState(): BillingState {
   return {
     deviceId: "",
     billingEmail: "",
+    billingAccessToken: "",
+    billingAccountLinked: false,
     purchasedCredits: 0,
     freeUsageDate: "",
     freeUsesRemaining: FREE_USES_PER_DAY,
@@ -36,6 +40,8 @@ export function normalizeBillingState(state: Partial<BillingState> | undefined, 
     next.freeUsesRemaining = FREE_USES_PER_DAY;
   }
   next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
+  next.billingAccessToken = typeof next.billingAccessToken === "string" ? next.billingAccessToken : "";
+  next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken);
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set((next.pendingCreditSpends ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
   return next;

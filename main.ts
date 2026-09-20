@@ -2,6 +2,8 @@ import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting,
 import { applyOperation, Frontmatter, Operation, parseFrontmatter, planOperation, ChangePlan } from "./core";
 import { defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, openCheckout, reserveUse, retryPendingCreditSpends, syncBalance } from "./billing";
 import type { BillingState } from "./billing-model";
+import { addBillingAccountSettings } from "./constance-account";
+import { PluginSupport } from "./plugin-support";
 
 interface TundraSettings { billing: BillingState; lastOperation?: Operation; lastBatch?: Batch; }
 interface Batch { id: string; createdAt: string; operation: Operation; files: Array<{ path: string; original: string; after?: string }>; summary: { changed: number; skipped: number; failed: number; unchanged: number }; }
@@ -9,7 +11,8 @@ const DEFAULT_SETTINGS: TundraSettings = { billing: defaultBillingState() };
 
 export default class TundraPlugin extends Plugin {
   settings: TundraSettings = { billing: defaultBillingState() };
-  async onload() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); this.settings.billing = ensureBillingState(this.settings.billing); await this.saveSettings(); void retryPendingCreditSpends(this); this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() }); this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open()); this.addSettingTab(new TundraSettingTab(this.app, this)); }
+  support!: PluginSupport;
+  async onload() { this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Preview, apply, audit, and roll back bulk frontmatter changes.", quickStart: ["Open the wrangler.", "Choose a scope and operation.", "Review the diff before applying the batch."], commands: ["Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wizard if notes changed after preview."] }); this.support.start(); this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); this.settings.billing = ensureBillingState(this.settings.billing); await this.saveSettings(); void retryPendingCreditSpends(this); this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() }); this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open()); this.addSettingTab(new TundraSettingTab(this.app, this)); }
   async saveSettings() { await this.saveData(this.settings); }
 }
 
@@ -23,7 +26,7 @@ class TundraSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton(b => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
 
     const billing = this.plugin.settings.billing;
-    new Setting(containerEl).setName("Billing email").setDesc("Used only for the one-time checkout receipt.").addText(t => t.setPlaceholder("you@example.com").setValue(billing.billingEmail).onChange(async value => { billing.billingEmail = value.trim(); await this.plugin.saveSettings(); }));
+    addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => { await syncBalance(this.plugin); }, refresh: () => this.display() });
     new Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today · ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton(button => button.setButtonText("Sync balance").onClick(async () => { button.setDisabled(true); const result = await syncBalance(this.plugin); new Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3000 : 5000); this.display(); }));
     const packs = new Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
     packs.addButton(button => button.setButtonText("Buy $1 (100 credits)").onClick(() => openCheckout(this.plugin, "usd001")));

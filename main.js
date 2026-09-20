@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TundraPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian2 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // core.ts
 var scalar = (value) => {
@@ -176,7 +176,7 @@ function planOperation(notes, operation) {
 }
 
 // billing.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // billing-model.ts
 var FREE_USES_PER_DAY = 3;
@@ -190,6 +190,8 @@ function defaultBillingState() {
   return {
     deviceId: "",
     billingEmail: "",
+    billingAccessToken: "",
+    billingAccountLinked: false,
     purchasedCredits: 0,
     freeUsageDate: "",
     freeUsesRemaining: FREE_USES_PER_DAY,
@@ -204,6 +206,8 @@ function normalizeBillingState(state, today) {
     next.freeUsesRemaining = FREE_USES_PER_DAY;
   }
   next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
+  next.billingAccessToken = typeof next.billingAccessToken === "string" ? next.billingAccessToken : "";
+  next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken);
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set(((_a = next.pendingCreditSpends) != null ? _a : []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
   return next;
@@ -225,6 +229,149 @@ function restorePurchasedAllowance(state) {
 }
 function isBillableWriteBatch(changedCount) {
   return Number.isFinite(changedCount) && changedCount > 0;
+}
+
+// constance-account.ts
+var import_obsidian = require("obsidian");
+var CONSTANCE_ACCOUNT_BASE_URL = "https://app.tutivsoft.com";
+function errorDetail(response, fallback) {
+  var _a, _b;
+  return String(((_a = response.json) == null ? void 0 : _a.detail) || ((_b = response.json) == null ? void 0 : _b.message) || response.text || fallback);
+}
+async function authenticate(mode, email, password, installationId) {
+  var _a;
+  const body = mode === "register" ? { email, password, external_customer_id: installationId } : { email, password };
+  const response = await (0, import_obsidian.requestUrl)({
+    url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/${mode}`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    throw: false
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(errorDetail(response, `Billing ${mode} failed (HTTP ${response.status})`));
+  }
+  const token = String(((_a = response.json) == null ? void 0 : _a.access_token) || "");
+  if (!token) throw new Error("Constance did not return an account token.");
+  return token;
+}
+async function linkInstallation(adapter, token) {
+  const response = await (0, import_obsidian.requestUrl)({
+    url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/installations/link`,
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      app_id: adapter.appId,
+      installation_id: adapter.installationId,
+      legacy_external_customer_id: adapter.installationId,
+      platform: "obsidian",
+      app_version: adapter.appVersion || void 0
+    }),
+    throw: false
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(errorDetail(response, `Installation link failed (HTTP ${response.status})`));
+  }
+}
+async function signInBillingAccount(adapter, password, mode) {
+  const email = adapter.state.billingEmail.trim().toLowerCase();
+  if (!email || !email.includes("@")) throw new Error("Enter a valid billing email.");
+  if (password.length < 8) throw new Error("Password must contain at least 8 characters.");
+  if (!adapter.installationId) throw new Error("The plugin installation ID is not ready.");
+  const token = await authenticate(mode, email, password, adapter.installationId);
+  await linkInstallation(adapter, token);
+  adapter.state.billingEmail = email;
+  adapter.state.billingAccessToken = token;
+  adapter.state.billingAccountLinked = true;
+  await adapter.persist();
+  await adapter.syncBalance();
+}
+async function claimAccountFreeUsage(state, appId, installationId, eventId, amount) {
+  var _a, _b;
+  if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "auth-required" };
+  try {
+    const response = await (0, import_obsidian.requestUrl)({
+      url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/free-usage/claim`,
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.billingAccessToken}` },
+      body: JSON.stringify({ app_id: appId, installation_id: installationId, event_id: eventId, amount }),
+      throw: false
+    });
+    if (response.status === 402) return { kind: "insufficient" };
+    if (response.status === 401 || response.status === 403 || response.status === 404) return { kind: "auth-required" };
+    if (response.status < 200 || response.status >= 300) return { kind: "error" };
+    return { kind: "ok", remaining: Math.max(0, Number((_b = (_a = response.json) == null ? void 0 : _a.data) == null ? void 0 : _b.remaining) || 0) };
+  } catch (error) {
+    console.error("Constance account free-usage claim failed", error);
+    return { kind: "error" };
+  }
+}
+async function spendAccountCredits(state, appId, installationId, eventId, amount) {
+  var _a, _b, _c;
+  if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "auth-required" };
+  try {
+    const response = await (0, import_obsidian.requestUrl)({
+      url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/credits/spend`,
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.billingAccessToken}` },
+      body: JSON.stringify({ app_id: appId, installation_id: installationId, event_id: eventId, amount }),
+      throw: false
+    });
+    if (response.status === 402) return { kind: "insufficient" };
+    if (response.status === 401 || response.status === 403 || response.status === 404) return { kind: "auth-required" };
+    if (response.status < 200 || response.status >= 300) return { kind: "error" };
+    const balance = Number((_c = (_b = (_a = response.json) == null ? void 0 : _a.data) == null ? void 0 : _b.credits) == null ? void 0 : _c.balance);
+    return Number.isFinite(balance) ? { kind: "ok", balance: Math.max(0, balance) } : { kind: "error" };
+  } catch (error) {
+    console.error("Constance authenticated credit spend failed", error);
+    return { kind: "error" };
+  }
+}
+function addBillingAccountSettings(containerEl, adapter) {
+  let password = "";
+  new import_obsidian.Setting(containerEl).setName("Billing account email").setDesc("Used for sign-in, purchase restore, and checkout. Reinstalling no longer creates a new free allowance.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).onChange(async (value) => {
+    adapter.state.billingEmail = value.trim();
+    await adapter.persist();
+  }));
+  new import_obsidian.Setting(containerEl).setName("Billing account password").setDesc("Used only for this sign-in request. The password is never saved by the plugin.").addText((text) => {
+    text.inputEl.type = "password";
+    text.setPlaceholder("At least 8 characters").onChange((value) => {
+      password = value;
+    });
+  });
+  const status = adapter.state.billingAccountLinked ? "Signed in and linked" : "Not signed in";
+  new import_obsidian.Setting(containerEl).setName("Billing account").setDesc(`${status}. The saved bearer session can restore purchases; your password is not stored.`).addButton((button) => button.setButtonText("Sign in").onClick(async () => {
+    var _a;
+    button.setDisabled(true);
+    try {
+      await signInBillingAccount(adapter, password, "login");
+      new import_obsidian.Notice("Billing account signed in and this installation was linked.");
+      (_a = adapter.refresh) == null ? void 0 : _a.call(adapter);
+    } catch (error) {
+      new import_obsidian.Notice(error instanceof Error ? error.message : "Billing sign-in failed.");
+    } finally {
+      button.setDisabled(false);
+    }
+  })).addButton((button) => button.setButtonText("Create account").onClick(async () => {
+    var _a;
+    button.setDisabled(true);
+    try {
+      await signInBillingAccount(adapter, password, "register");
+      new import_obsidian.Notice("Billing account created and this installation was linked.");
+      (_a = adapter.refresh) == null ? void 0 : _a.call(adapter);
+    } catch (error) {
+      new import_obsidian.Notice(error instanceof Error ? error.message : "Billing account creation failed.");
+    } finally {
+      button.setDisabled(false);
+    }
+  })).addButton((button) => button.setButtonText("Sign out").setDisabled(!adapter.state.billingAccessToken).onClick(async () => {
+    var _a;
+    adapter.state.billingAccessToken = "";
+    adapter.state.billingAccountLinked = false;
+    await adapter.persist();
+    new import_obsidian.Notice("Billing account signed out on this installation.");
+    (_a = adapter.refresh) == null ? void 0 : _a.call(adapter);
+  }));
 }
 
 // billing.ts
@@ -255,21 +402,17 @@ function readBalance(response) {
 }
 async function spendConstanceCredit(plugin, stableEventId) {
   const state = plugin.settings.billing;
-  try {
-    const response = await (0, import_obsidian.requestUrl)({
-      url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/credits/spend`,
-      method: "POST",
-      throw: false,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: stableEventId })
-    });
-    if (response.status === 402 || response.status === 404) return { kind: "insufficient" };
-    if (response.status < 200 || response.status >= 300) return { kind: "error" };
-    return { kind: "ok", balance: readBalance(response) };
-  } catch (error) {
-    console.warn("Tundra: Constance credit spend failed", error);
+  const result = await spendAccountCredits(state, CONSTANCE_APP_ID, state.deviceId, stableEventId, 1);
+  if (result.kind === "auth-required") {
+    state.billingAccessToken = "";
+    state.billingAccountLinked = false;
+    await plugin.saveSettings();
+    new import_obsidian2.Notice("Tundra: your billing session expired. Sign in again.", 5e3);
     return { kind: "error" };
   }
+  if (result.kind === "insufficient") return result;
+  if (result.kind === "ok") return result;
+  return { kind: "error" };
 }
 async function retryPendingCreditSpends(plugin) {
   for (const stableEventId of [...plugin.settings.billing.pendingCreditSpends]) {
@@ -281,28 +424,40 @@ async function retryPendingCreditSpends(plugin) {
   }
 }
 async function reserveUse(plugin) {
+  if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
+    new import_obsidian2.Notice("Tundra: sign in or create a billing account in plugin settings before applying changes.", 5e3);
+    return null;
+  }
   const today = localCalendarDate();
   const current = ensureBillingState(plugin.settings.billing);
   const claim = claimLocalAllowance(current, today);
   plugin.settings.billing = claim.state;
   if (claim.source === "free") {
-    await plugin.saveSettings();
-    return { source: "free", commit: async () => ({ kind: "committed" }), rollback: async () => {
-      plugin.settings.billing = ensureBillingState(plugin.settings.billing);
-      plugin.settings.billing.freeUsesRemaining++;
+    const free = await claimAccountFreeUsage(current, CONSTANCE_APP_ID, current.deviceId, `free_${generateEventId()}`, 1);
+    if (free.kind !== "ok") {
+      plugin.settings.billing = current;
+      if (free.kind === "auth-required") {
+        plugin.settings.billing.billingAccessToken = "";
+        plugin.settings.billing.billingAccountLinked = false;
+      }
       await plugin.saveSettings();
-    } };
+      new import_obsidian2.Notice(free.kind === "insufficient" ? "Tundra: today's account free allowance is exhausted." : "Tundra: the account allowance could not be verified.", 5e3);
+      return null;
+    }
+    plugin.settings.billing.freeUsesRemaining = free.remaining;
+    await plugin.saveSettings();
+    return { source: "free", commit: async () => ({ kind: "committed" }), rollback: async () => void 0 };
   }
   if (claim.source === "remote") {
     const sync = await syncBalance(plugin);
     if (sync.kind !== "ok" || sync.balance < 1) {
-      new import_obsidian.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
+      new import_obsidian2.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
       return null;
     }
     const refreshed = claimLocalAllowance(plugin.settings.billing, today);
     plugin.settings.billing = refreshed.state;
     if (refreshed.source !== "purchased") {
-      new import_obsidian.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
+      new import_obsidian2.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
       return null;
     }
   }
@@ -336,14 +491,21 @@ function isBillableApply(changedCount) {
 }
 async function syncBalance(plugin) {
   plugin.settings.billing = ensureBillingState(plugin.settings.billing);
+  const state = plugin.settings.billing;
+  if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "error" };
   try {
-    const response = await (0, import_obsidian.requestUrl)({
-      url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/entitlements`,
-      method: "POST",
+    const response = await (0, import_obsidian2.requestUrl)({
+      url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId }).toString()}`,
+      method: "GET",
       throw: false,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: plugin.settings.billing.deviceId, machine_id: plugin.settings.billing.deviceId })
+      headers: { Authorization: `Bearer ${state.billingAccessToken}` }
     });
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      state.billingAccessToken = "";
+      state.billingAccountLinked = false;
+      await plugin.saveSettings();
+      return { kind: "error" };
+    }
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
     const balance = readBalance(response);
     plugin.settings.billing.purchasedCredits = balance;
@@ -355,24 +517,137 @@ async function syncBalance(plugin) {
   }
 }
 function openCheckout(plugin, tier) {
+  if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
+    new import_obsidian2.Notice("Sign in or create a billing account in Tundra settings before buying credits.", 5e3);
+    return;
+  }
   const priceId = TUNDRA_PRICE_IDS[tier];
   const email = plugin.settings.billing.billingEmail.trim();
   if (!email || !email.includes("@")) {
-    new import_obsidian.Notice("Enter a valid billing email in Tundra settings first.", 5e3);
+    new import_obsidian2.Notice("Enter a valid billing email in Tundra settings first.", 5e3);
     return;
   }
   const params = new URLSearchParams({ app_id: CONSTANCE_APP_ID, price_id: priceId, email, external_customer_id: plugin.settings.billing.deviceId });
   window.open(`${CONSTANCE_BASE_URL}/buy?${params.toString()}`, "_blank");
 }
 
+// plugin-support.ts
+var import_obsidian3 = require("obsidian");
+function safeDetail(value) {
+  if (value instanceof Error) return value.stack || value.message;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch (e) {
+    return String(value);
+  }
+}
+var DocumentationModal = class extends import_obsidian3.Modal {
+  constructor(app, docs) {
+    super(app);
+    this.docs = docs;
+  }
+  onOpen() {
+    this.titleEl.setText(`${this.docs.name} documentation`);
+    this.contentEl.createEl("p", { text: this.docs.summary });
+    const addSection = (title, items) => {
+      this.contentEl.createEl("h3", { text: title });
+      const list = this.contentEl.createEl("ol");
+      for (const item of items) list.createEl("li", { text: item });
+    };
+    addSection("Quick start", this.docs.quickStart);
+    addSection("Useful commands", this.docs.commands);
+    addSection("Troubleshooting", this.docs.troubleshooting);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var PluginSupport = class {
+  constructor(plugin, docs) {
+    this.plugin = plugin;
+    this.docs = docs;
+    this.entries = [];
+    this.maxEntries = 250;
+  }
+  start() {
+    this.info("plugin.loaded", `version=${this.plugin.manifest.version}`);
+    this.plugin.registerDomEvent(window, "error", (event) => {
+      this.error("runtime.error", event.error || event.message);
+    });
+    this.plugin.registerDomEvent(window, "unhandledrejection", (event) => {
+      this.error("runtime.unhandled_rejection", event.reason);
+    });
+    this.plugin.addCommand({
+      id: "open-documentation",
+      name: "Open documentation",
+      callback: () => new DocumentationModal(this.plugin.app, this.docs).open()
+    });
+    this.plugin.addCommand({
+      id: "copy-debug-log",
+      name: "Copy debug log",
+      callback: () => {
+        void this.copyDiagnostics();
+      }
+    });
+    this.plugin.addCommand({
+      id: "open-plugin-settings",
+      name: "Open plugin settings",
+      callback: () => {
+        const setting = this.plugin.app.setting;
+        setting == null ? void 0 : setting.open();
+        setting == null ? void 0 : setting.openTabById(this.plugin.manifest.id);
+      }
+    });
+  }
+  info(event, detail) {
+    this.record("info", event, detail);
+  }
+  warn(event, detail) {
+    this.record("warn", event, detail);
+  }
+  error(event, detail) {
+    this.record("error", event, detail);
+  }
+  record(level, event, detail) {
+    const entry = { at: (/* @__PURE__ */ new Date()).toISOString(), level, event };
+    if (detail !== void 0) entry.detail = safeDetail(detail).slice(0, 4e3);
+    this.entries.push(entry);
+    if (this.entries.length > this.maxEntries) this.entries.splice(0, this.entries.length - this.maxEntries);
+    const method = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
+    method.call(console, `[${this.docs.name}] ${event}`, detail != null ? detail : "");
+  }
+  async copyDiagnostics() {
+    const header = [
+      `Plugin: ${this.docs.name}`,
+      `Plugin ID: ${this.plugin.manifest.id}`,
+      `Version: ${this.plugin.manifest.version}`,
+      `Captured: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      `User agent: ${navigator.userAgent}`,
+      ""
+    ];
+    try {
+      await navigator.clipboard.writeText(header.concat(this.entries.map(
+        (entry) => `${entry.at} [${entry.level.toUpperCase()}] ${entry.event}${entry.detail ? ` \u2014 ${entry.detail}` : ""}`
+      )).join("\n"));
+      new import_obsidian3.Notice(`${this.docs.name}: debug log copied. Secrets and note contents are not included.`);
+    } catch (error) {
+      this.error("diagnostics.copy_failed", error);
+      new import_obsidian3.Notice(`${this.docs.name}: could not copy the debug log.`);
+    }
+  }
+};
+
 // main.ts
 var DEFAULT_SETTINGS = { billing: defaultBillingState() };
-var TundraPlugin = class extends import_obsidian2.Plugin {
+var TundraPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { billing: defaultBillingState() };
   }
   async onload() {
+    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Preview, apply, audit, and roll back bulk frontmatter changes.", quickStart: ["Open the wrangler.", "Choose a scope and operation.", "Review the diff before applying the batch."], commands: ["Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wizard if notes changed after preview."] });
+    this.support.start();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.settings.billing = ensureBillingState(this.settings.billing);
     await this.saveSettings();
@@ -385,7 +660,7 @@ var TundraPlugin = class extends import_obsidian2.Plugin {
     await this.saveData(this.settings);
   }
 };
-var TundraSettingTab = class extends import_obsidian2.PluginSettingTab {
+var TundraSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -395,26 +670,25 @@ var TundraSettingTab = class extends import_obsidian2.PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Offline-first metadata operations. Every write is journaled for rollback." });
-    new import_obsidian2.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
+    new import_obsidian4.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
     const billing = this.plugin.settings.billing;
-    new import_obsidian2.Setting(containerEl).setName("Billing email").setDesc("Used only for the one-time checkout receipt.").addText((t) => t.setPlaceholder("you@example.com").setValue(billing.billingEmail).onChange(async (value) => {
-      billing.billingEmail = value.trim();
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian2.Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today \xB7 ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton((button) => button.setButtonText("Sync balance").onClick(async () => {
+    addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => {
+      await syncBalance(this.plugin);
+    }, refresh: () => this.display() });
+    new import_obsidian4.Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today \xB7 ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton((button) => button.setButtonText("Sync balance").onClick(async () => {
       button.setDisabled(true);
       const result = await syncBalance(this.plugin);
-      new import_obsidian2.Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3e3 : 5e3);
+      new import_obsidian4.Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3e3 : 5e3);
       this.display();
     }));
-    const packs = new import_obsidian2.Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
+    const packs = new import_obsidian4.Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
     packs.addButton((button) => button.setButtonText("Buy $1 (100 credits)").onClick(() => openCheckout(this.plugin, "usd001")));
     packs.addButton((button) => button.setButtonText("Buy $10 (1,000 credits)").setCta().onClick(() => openCheckout(this.plugin, "usd010")));
     containerEl.createEl("p", { cls: "tundra-note", text: `This install's billing device ID is saved locally and is not editable: ${billing.deviceId.slice(0, 18)}\u2026` });
-    if (this.plugin.settings.lastBatch) new import_obsidian2.Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed \xB7 ${this.plugin.settings.lastBatch.createdAt}`).addButton((b) => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
+    if (this.plugin.settings.lastBatch) new import_obsidian4.Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed \xB7 ${this.plugin.settings.lastBatch.createdAt}`).addButton((b) => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
   }
 };
-var WranglerModal = class extends import_obsidian2.Modal {
+var WranglerModal = class extends import_obsidian4.Modal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -465,22 +739,22 @@ var WranglerModal = class extends import_obsidian2.Modal {
   }
   footer(parent, next, action, back = true) {
     const f = parent.createDiv("tundra-footer");
-    if (back) new import_obsidian2.ButtonComponent(f).setButtonText("Back").onClick(() => {
+    if (back) new import_obsidian4.ButtonComponent(f).setButtonText("Back").onClick(() => {
       this.step--;
       this.render();
     });
-    new import_obsidian2.ButtonComponent(f).setButtonText(next).setCta().onClick(action);
+    new import_obsidian4.ButtonComponent(f).setButtonText(next).setCta().onClick(action);
   }
   renderSelect(parent) {
     parent.createEl("p", { text: "Choose a safe working set. Selection stays local to this vault." });
-    new import_obsidian2.Setting(parent).setName("Folder").setDesc("Leave blank for the whole vault").addText((t) => t.setPlaceholder("Projects/2026").setValue(this.folder).onChange((v) => {
+    new import_obsidian4.Setting(parent).setName("Folder").setDesc("Leave blank for the whole vault").addText((t) => t.setPlaceholder("Projects/2026").setValue(this.folder).onChange((v) => {
       this.folder = v.trim();
     }));
-    new import_obsidian2.Setting(parent).setName("Include subfolders").addToggle((t) => t.setValue(this.recursive).onChange((v) => this.recursive = v));
-    new import_obsidian2.Setting(parent).setName("Path or text query").setDesc("Matches the note path or its body").addText((t) => t.setPlaceholder("meeting").setValue(this.query).onChange((v) => this.query = v));
-    new import_obsidian2.Setting(parent).setName("Property filter").setDesc("Exact top-level property value").addText((t) => t.setPlaceholder("status").setValue(this.filterKey).onChange((v) => this.filterKey = v)).addText((t) => t.setPlaceholder("active").setValue(this.filterValue).onChange((v) => this.filterValue = v));
+    new import_obsidian4.Setting(parent).setName("Include subfolders").addToggle((t) => t.setValue(this.recursive).onChange((v) => this.recursive = v));
+    new import_obsidian4.Setting(parent).setName("Path or text query").setDesc("Matches the note path or its body").addText((t) => t.setPlaceholder("meeting").setValue(this.query).onChange((v) => this.query = v));
+    new import_obsidian4.Setting(parent).setName("Property filter").setDesc("Exact top-level property value").addText((t) => t.setPlaceholder("status").setValue(this.filterKey).onChange((v) => this.filterKey = v)).addText((t) => t.setPlaceholder("active").setValue(this.filterValue).onChange((v) => this.filterValue = v));
     const run = parent.createDiv("tundra-actions");
-    new import_obsidian2.ButtonComponent(run).setButtonText("Build inventory").setCta().onClick(async () => {
+    new import_obsidian4.ButtonComponent(run).setButtonText("Build inventory").setCta().onClick(async () => {
       await this.selectFiles();
       this.step = 1;
       this.render();
@@ -554,7 +828,7 @@ var WranglerModal = class extends import_obsidian2.Modal {
   renderConfigure(parent) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     parent.createEl("h3", { text: "Configure operation" });
-    const setting = new import_obsidian2.Setting(parent).setName("Operation").setDesc("Only top-level properties are changed");
+    const setting = new import_obsidian4.Setting(parent).setName("Operation").setDesc("Only top-level properties are changed");
     setting.addDropdown((d) => d.addOptions({ rename: "Rename property", remove: "Remove property (destructive)", "add-tags": "Add tags", "remove-tags": "Remove tags", "replace-tag": "Replace tag", "normalize-tags": "Normalize tags by exact rule", reorder: "Reorder schema", format: "Format only" }).setValue(this.operation.kind).onChange((v) => {
       this.operation = { kind: v, collision: "skip" };
       this.render();
@@ -563,7 +837,7 @@ var WranglerModal = class extends import_obsidian2.Modal {
       this.textSetting(parent, "Property key", "oldKey", (_a = this.operation.oldKey) != null ? _a : "");
       if (this.operation.kind === "rename") {
         this.textSetting(parent, "New key", "newKey", (_b = this.operation.newKey) != null ? _b : "");
-        new import_obsidian2.Setting(parent).setName("Collision handling").addDropdown((d) => {
+        new import_obsidian4.Setting(parent).setName("Collision handling").addDropdown((d) => {
           var _a2;
           return d.addOptions({ keep: "Keep existing new key", replace: "Replace with old value", merge: "Merge values", skip: "Skip collided note" }).setValue((_a2 = this.operation.collision) != null ? _a2 : "skip").onChange((v) => this.operation.collision = v);
         });
@@ -578,7 +852,7 @@ var WranglerModal = class extends import_obsidian2.Modal {
       this.textSetting(parent, "Optional namespace/prefix", "namespace", (_h = this.operation.namespace) != null ? _h : "");
     } else if (this.operation.kind === "reorder") {
       this.textSetting(parent, "Preferred keys (comma separated)", "order", ((_i = this.operation.order) != null ? _i : []).join(", "));
-      new import_obsidian2.Setting(parent).setName("Unknown keys").addDropdown((d) => {
+      new import_obsidian4.Setting(parent).setName("Unknown keys").addDropdown((d) => {
         var _a2;
         return d.addOptions({ after: "Keep after preferred keys", before: "Keep before preferred keys" }).setValue((_a2 = this.operation.unknownPosition) != null ? _a2 : "after").onChange((v) => this.operation.unknownPosition = v);
       });
@@ -590,7 +864,7 @@ var WranglerModal = class extends import_obsidian2.Modal {
     });
   }
   textSetting(parent, name, key, value) {
-    new import_obsidian2.Setting(parent).setName(name).addText((t) => t.setValue(value).onChange((v) => {
+    new import_obsidian4.Setting(parent).setName(name).addText((t) => t.setValue(value).onChange((v) => {
       if (key === "tags" || key === "order") this.operation[key] = v.split(",").map((s) => s.trim()).filter(Boolean);
       else this.operation[key] = v;
     }));
@@ -628,11 +902,11 @@ var WranglerModal = class extends import_obsidian2.Modal {
     }
     parent.createEl("p", { cls: "tundra-note", text: "Apply writes one note at a time. One free or purchased credit is authorized only when this preview contains at least one reviewed change." });
     const f = parent.createDiv("tundra-footer");
-    new import_obsidian2.ButtonComponent(f).setButtonText("Back").onClick(() => {
+    new import_obsidian4.ButtonComponent(f).setButtonText("Back").onClick(() => {
       this.step = 2;
       this.render();
     });
-    const apply = new import_obsidian2.ButtonComponent(f).setButtonText("Confirm and apply").setCta();
+    const apply = new import_obsidian4.ButtonComponent(f).setButtonText("Confirm and apply").setCta();
     apply.setDisabled(!isBillableApply(changed.length) || !changed.every((p) => this.reviewed.has(p.path)));
     apply.onClick(() => {
       if (!isBillableApply(changed.length) || !changed.every((p) => this.reviewed.has(p.path))) return;
@@ -646,9 +920,9 @@ var WranglerModal = class extends import_obsidian2.Modal {
     parent.createEl("h3", { text: "Applying changes" });
     const progress = parent.createEl("progress", { attr: { max: String(this.plans.length), value: "0" } });
     const status = parent.createEl("p", { text: "Authorizing write batch\u2026", cls: "tundra-status" });
-    const cancel = new import_obsidian2.ButtonComponent(parent).setButtonText("Cancel after current note");
+    const cancel = new import_obsidian4.ButtonComponent(parent).setButtonText("Cancel after current note");
     cancel.setDisabled(true);
-    const back = new import_obsidian2.ButtonComponent(parent).setButtonText("Back to preview").onClick(() => {
+    const back = new import_obsidian4.ButtonComponent(parent).setButtonText("Back to preview").onClick(() => {
       this.step = 3;
       this.render();
     });
@@ -676,7 +950,7 @@ var WranglerModal = class extends import_obsidian2.Modal {
           continue;
         }
         const file = this.app.vault.getAbstractFileByPath(p.path);
-        if (!(file instanceof import_obsidian2.TFile)) {
+        if (!(file instanceof import_obsidian4.TFile)) {
           batch.summary.failed++;
           continue;
         }
@@ -695,7 +969,7 @@ var WranglerModal = class extends import_obsidian2.Modal {
       }
       if (batch.summary.changed > 0) {
         const billingResult = await reservation.commit();
-        if (billingResult.kind === "pending") new import_obsidian2.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
+        if (billingResult.kind === "pending") new import_obsidian4.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
       } else {
         await reservation.rollback();
       }
@@ -713,18 +987,18 @@ var WranglerModal = class extends import_obsidian2.Modal {
       return;
     }
     parent.createEl("p", { text: `${batch.summary.changed} changed \xB7 ${batch.summary.skipped} skipped \xB7 ${batch.summary.failed} failed \xB7 ${batch.summary.unchanged} unchanged` });
-    new import_obsidian2.ButtonComponent(parent).setButtonText("Rollback most recent batch").onClick(async () => {
+    new import_obsidian4.ButtonComponent(parent).setButtonText("Rollback most recent batch").onClick(async () => {
       await rollback(this.app, this.plugin);
       this.render();
     });
-    new import_obsidian2.ButtonComponent(parent).setButtonText("Open operation log").onClick(() => new LogModal(this.app, batch).open());
+    new import_obsidian4.ButtonComponent(parent).setButtonText("Open operation log").onClick(() => new LogModal(this.app, batch).open());
     this.footer(parent, "Done", () => this.close(), false);
   }
 };
 async function rollback(app, plugin) {
   const batch = plugin.settings.lastBatch;
   if (!batch) {
-    new import_obsidian2.Notice("No recovery journal is available.");
+    new import_obsidian4.Notice("No recovery journal is available.");
     return;
   }
   if (!window.confirm(`Restore ${batch.files.length} note(s) from the most recent journal?`)) return;
@@ -732,7 +1006,7 @@ async function rollback(app, plugin) {
   let skipped = 0;
   for (const entry of batch.files) {
     const file = app.vault.getAbstractFileByPath(entry.path);
-    if (!(file instanceof import_obsidian2.TFile)) {
+    if (!(file instanceof import_obsidian4.TFile)) {
       skipped++;
       continue;
     }
@@ -748,9 +1022,9 @@ async function rollback(app, plugin) {
       skipped++;
     }
   }
-  new import_obsidian2.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
+  new import_obsidian4.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
 }
-var LogModal = class extends import_obsidian2.Modal {
+var LogModal = class extends import_obsidian4.Modal {
   constructor(app, batch) {
     super(app);
     this.batch = batch;

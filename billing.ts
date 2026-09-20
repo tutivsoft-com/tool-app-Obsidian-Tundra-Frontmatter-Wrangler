@@ -8,6 +8,7 @@ import {
   restorePurchasedAllowance,
   type BillingState,
 } from "./billing-model";
+import { claimAccountFreeUsage, spendAccountCredits } from "./constance-account";
 export { defaultBillingState, FREE_USES_PER_DAY } from "./billing-model";
 
 export const CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
@@ -46,16 +47,17 @@ function readBalance(response: { json?: any }): number {
 
 async function spendConstanceCredit(plugin: TundraPlugin, stableEventId: string): Promise<SpendResult> {
   const state = plugin.settings.billing;
-  try {
-    const response = await requestUrl({
-      url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/credits/spend`, method: "POST", throw: false,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: state.deviceId, machine_id: state.deviceId, amount: 1, event_id: stableEventId }),
-    });
-    if (response.status === 402 || response.status === 404) return { kind: "insufficient" };
-    if (response.status < 200 || response.status >= 300) return { kind: "error" };
-    return { kind: "ok", balance: readBalance(response) };
-  } catch (error) { console.warn("Tundra: Constance credit spend failed", error); return { kind: "error" }; }
+  const result = await spendAccountCredits(state, CONSTANCE_APP_ID, state.deviceId, stableEventId, 1);
+  if (result.kind === "auth-required") {
+    state.billingAccessToken = "";
+    state.billingAccountLinked = false;
+    await plugin.saveSettings();
+    new Notice("Tundra: your billing session expired. Sign in again.", 5000);
+    return { kind: "error" };
+  }
+  if (result.kind === "insufficient") return result;
+  if (result.kind === "ok") return result;
+  return { kind: "error" };
 }
 
 export type UseCommitResult = { kind: "committed" } | { kind: "pending" } | { kind: "insufficient" };
@@ -72,14 +74,30 @@ export async function retryPendingCreditSpends(plugin: TundraPlugin): Promise<vo
 }
 
 export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation | null> {
+  if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
+    new Notice("Tundra: sign in or create a billing account in plugin settings before applying changes.", 5000);
+    return null;
+  }
   const today = localCalendarDate();
   const current = ensureBillingState(plugin.settings.billing);
   const claim = claimLocalAllowance(current, today);
   plugin.settings.billing = claim.state;
 
   if (claim.source === "free") {
+    const free = await claimAccountFreeUsage(current, CONSTANCE_APP_ID, current.deviceId, `free_${generateEventId()}`, 1);
+    if (free.kind !== "ok") {
+      plugin.settings.billing = current;
+      if (free.kind === "auth-required") {
+        plugin.settings.billing.billingAccessToken = "";
+        plugin.settings.billing.billingAccountLinked = false;
+      }
+      await plugin.saveSettings();
+      new Notice(free.kind === "insufficient" ? "Tundra: today's account free allowance is exhausted." : "Tundra: the account allowance could not be verified.", 5000);
+      return null;
+    }
+    plugin.settings.billing.freeUsesRemaining = free.remaining;
     await plugin.saveSettings();
-    return { source: "free", commit: async () => ({ kind: "committed" }), rollback: async () => { plugin.settings.billing = ensureBillingState(plugin.settings.billing); plugin.settings.billing.freeUsesRemaining++; await plugin.saveSettings(); } };
+    return { source: "free", commit: async () => ({ kind: "committed" }), rollback: async () => undefined };
   }
 
   // A zero mirror is not an authorization to spend. Refresh it once so a
@@ -131,12 +149,20 @@ export function isBillableApply(changedCount: number): boolean {
 
 export async function syncBalance(plugin: TundraPlugin): Promise<SyncResult> {
   plugin.settings.billing = ensureBillingState(plugin.settings.billing);
+  const state = plugin.settings.billing;
+  if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "error" };
   try {
     const response = await requestUrl({
-      url: `${CONSTANCE_BASE_URL}/api/v1/public/browser/entitlements`, method: "POST", throw: false,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: CONSTANCE_APP_ID, external_customer_id: plugin.settings.billing.deviceId, machine_id: plugin.settings.billing.deviceId }),
+      url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId }).toString()}`,
+      method: "GET", throw: false,
+      headers: { Authorization: `Bearer ${state.billingAccessToken}` },
     });
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      state.billingAccessToken = "";
+      state.billingAccountLinked = false;
+      await plugin.saveSettings();
+      return { kind: "error" };
+    }
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
     const balance = readBalance(response);
     plugin.settings.billing.purchasedCredits = balance;
@@ -146,6 +172,7 @@ export async function syncBalance(plugin: TundraPlugin): Promise<SyncResult> {
 }
 
 export function openCheckout(plugin: TundraPlugin, tier: keyof typeof TUNDRA_PRICE_IDS): void {
+  if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) { new Notice("Sign in or create a billing account in Tundra settings before buying credits.", 5000); return; }
   const priceId = TUNDRA_PRICE_IDS[tier];
   const email = plugin.settings.billing.billingEmail.trim();
   if (!email || !email.includes("@")) { new Notice("Enter a valid billing email in Tundra settings first.", 5000); return; }

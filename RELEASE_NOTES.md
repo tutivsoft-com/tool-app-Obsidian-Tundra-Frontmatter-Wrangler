@@ -2,8 +2,8 @@
 
 ## 3.4.6 - 2026-09-20
 
-Metadata-only patch preparation: synchronized public release metadata. No
-runtime behavior changed.
+Metadata-only patch preparation: synchronized source, publish, and current
+release documentation. No runtime behavior changed.
 
 ## 3.4.5 - 2026-09-20
 
