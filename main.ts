@@ -1,6 +1,6 @@
 import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
 import { applyOperation, Frontmatter, Operation, parseFrontmatter, planOperation, ChangePlan } from "./core";
-import { defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, openCheckout, reserveUse, retryPendingCreditSpends, syncBalance } from "./billing";
+import { defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, openCheckout, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
 import type { BillingState } from "./billing-model";
 import { addBillingAccountSettings } from "./constance-account";
 import { PluginSupport } from "./plugin-support";
@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS: TundraSettings = { billing: defaultBillingState() };
 export default class TundraPlugin extends Plugin {
   settings: TundraSettings = { billing: defaultBillingState() };
   support!: PluginSupport;
-  async onload() { this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Preview, apply, audit, and roll back bulk frontmatter changes.", quickStart: ["Open the wrangler.", "Choose a scope and operation.", "Review the diff before applying the batch."], commands: ["Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wizard if notes changed after preview."] }); this.support.start(); this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); this.settings.billing = ensureBillingState(this.settings.billing); await this.saveSettings(); void retryPendingCreditSpends(this); this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() }); this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open()); this.addSettingTab(new TundraSettingTab(this.app, this)); }
+  async onload() { this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Preview, apply, audit, and roll back bulk frontmatter changes.", quickStart: ["Open the wrangler.", "Choose a scope and operation.", "Review the diff before applying the batch."], commands: ["Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wizard if notes changed after preview."] }); this.support.start(); this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); this.settings.billing = ensureBillingState(this.settings.billing); await this.saveSettings(); void retryPendingCreditSpends(this); resumePendingCheckout(this); this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() }); this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open()); this.addSettingTab(new TundraSettingTab(this.app, this)); }
   async saveSettings() { await this.saveData(this.settings); }
 }
 

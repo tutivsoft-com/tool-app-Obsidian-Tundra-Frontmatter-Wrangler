@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.4.9`
+Version: `3.4.10`
 
 Tundra is an offline-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. It keeps the common path simple: select notes, inspect the inventory, configure one deterministic operation, preview it, apply it, and review the result.
 
@@ -24,12 +24,14 @@ credit. Previewing, planning a no-op, and rolling back never consume credits.
 Purchased credits are one-time packs: $1 for 100 credits or $10 for 1,000
 credits. The settings tab stores a billing email for the receipt, shows the
 local mirror of the purchased balance, provides a manual balance sync, and
-opens the live Constance checkout using the provisioned Tundra price IDs.
+opens Constance's authenticated checkout using the catalog plan codes
+`standard` and `pro`; Constance resolves the current price IDs server-side and
+the plugin polls checkout settlement before refreshing the balance.
 
-Billing uses Constance's unsigned browser-relay endpoints with the unique
+Billing uses Constance's authenticated account endpoints with the unique
 `tundra-frontmatter-wrangler` app ID. A random per-install device ID is stored
-in the plugin's local settings and sent as both `external_customer_id` and
-`machine_id`; no secret or credential is embedded in the plugin.
+in the plugin's local settings and linked to the billing account; no signing
+secret or credential is embedded in the plugin.
 
 ## Supported operations
 

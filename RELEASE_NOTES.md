@@ -1,3 +1,7 @@
+## 3.4.10 - 2026-09-22
+
+- Updated Constance checkout to use the authenticated plan-code flow, stable idempotency, and webhook-authoritative settlement polling.
+
 # Tundra Frontmatter Wrangler 3.4.6
 
 ## 3.4.6 - 2026-09-20

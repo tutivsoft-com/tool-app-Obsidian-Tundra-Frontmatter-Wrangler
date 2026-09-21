@@ -9,6 +9,7 @@ export interface BillingState {
   freeUsageDate: string;
   freeUsesRemaining: number;
   pendingCreditSpends: string[];
+  pendingCheckout: { idempotencyKey: string; planCode: string; checkoutId?: string } | null;
 }
 
 export type LocalCreditSource = "free" | "purchased" | "remote";
@@ -30,6 +31,7 @@ export function defaultBillingState(): BillingState {
     freeUsageDate: "",
     freeUsesRemaining: FREE_USES_PER_DAY,
     pendingCreditSpends: [],
+    pendingCheckout: null,
   };
 }
 
@@ -44,6 +46,7 @@ export function normalizeBillingState(state: Partial<BillingState> | undefined, 
   next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken);
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set((next.pendingCreditSpends ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
+  if (!next.pendingCheckout || typeof next.pendingCheckout.idempotencyKey !== "string" || typeof next.pendingCheckout.planCode !== "string") next.pendingCheckout = null;
   return next;
 }
 

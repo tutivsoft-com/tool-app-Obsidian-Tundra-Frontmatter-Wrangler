@@ -195,7 +195,8 @@ function defaultBillingState() {
     purchasedCredits: 0,
     freeUsageDate: "",
     freeUsesRemaining: FREE_USES_PER_DAY,
-    pendingCreditSpends: []
+    pendingCreditSpends: [],
+    pendingCheckout: null
   };
 }
 function normalizeBillingState(state, today) {
@@ -210,6 +211,7 @@ function normalizeBillingState(state, today) {
   next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken);
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set(((_a = next.pendingCreditSpends) != null ? _a : []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
+  if (!next.pendingCheckout || typeof next.pendingCheckout.idempotencyKey !== "string" || typeof next.pendingCheckout.planCode !== "string") next.pendingCheckout = null;
   return next;
 }
 function claimLocalAllowance(state, today) {
@@ -377,9 +379,9 @@ function addBillingAccountSettings(containerEl, adapter) {
 // billing.ts
 var CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
 var CONSTANCE_APP_ID = "tundra-frontmatter-wrangler";
-var TUNDRA_PRICE_IDS = {
-  usd001: "pri_01m28hmkzcn3cf9e04qq1s9jw6",
-  usd010: "pri_01m28hmmvr4zs9enh6tptd7gjy"
+var TUNDRA_PLAN_CODES = {
+  usd001: "standard",
+  usd010: "pro"
 };
 function makeDeviceId() {
   const bytes = new Uint8Array(16);
@@ -395,6 +397,12 @@ function generateEventId() {
   const bytes = new Uint8Array(12);
   window.crypto.getRandomValues(bytes);
   return `evt_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+function generateIdempotencyKey() {
+  return `checkout_${generateEventId()}`;
+}
+function wait(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 function readBalance(response) {
   var _a, _b, _c;
@@ -422,6 +430,91 @@ async function retryPendingCreditSpends(plugin) {
     plugin.settings.billing.purchasedCredits = result.kind === "insufficient" ? 0 : result.balance;
     await plugin.saveSettings();
   }
+}
+async function pollCheckoutSettlement(plugin, checkoutId) {
+  var _a;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await wait(5e3);
+    const state = plugin.settings.billing;
+    if (!state.pendingCheckout || state.pendingCheckout.checkoutId !== checkoutId || !state.billingAccessToken) return;
+    try {
+      const response = await (0, import_obsidian2.requestUrl)({
+        url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkouts/${encodeURIComponent(checkoutId)}`,
+        method: "GET",
+        headers: { Authorization: `Bearer ${state.billingAccessToken}` },
+        throw: false
+      });
+      if (response.status === 401 || response.status === 403) {
+        state.billingAccessToken = "";
+        state.billingAccountLinked = false;
+        state.pendingCheckout = null;
+        await plugin.saveSettings();
+        return;
+      }
+      if (response.status < 200 || response.status >= 300) continue;
+      const data = (_a = response.json) == null ? void 0 : _a.data;
+      if ((data == null ? void 0 : data.settled) === true) {
+        state.pendingCheckout = null;
+        await plugin.saveSettings();
+        await syncBalance(plugin);
+        new import_obsidian2.Notice("Tundra: payment settled and your credit balance was refreshed.", 5e3);
+        return;
+      }
+    } catch (error) {
+      console.warn("Tundra: checkout settlement poll failed", error);
+    }
+  }
+}
+async function startCheckout(plugin, planCode) {
+  var _a, _b;
+  const state = plugin.settings.billing;
+  if (!state.billingAccessToken || !state.billingAccountLinked) {
+    new import_obsidian2.Notice("Tundra: sign in or create a billing account in plugin settings before buying credits.", 5e3);
+    return;
+  }
+  const pending = ((_a = state.pendingCheckout) == null ? void 0 : _a.planCode) === planCode ? state.pendingCheckout : { idempotencyKey: generateIdempotencyKey(), planCode };
+  state.pendingCheckout = pending;
+  await plugin.saveSettings();
+  const response = await (0, import_obsidian2.requestUrl)({
+    url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkout`,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${state.billingAccessToken}`,
+      "Idempotency-Key": pending.idempotencyKey
+    },
+    body: JSON.stringify({ app_id: CONSTANCE_APP_ID, plan_code: planCode, installation_id: state.deviceId, quantity: 1 }),
+    throw: false
+  });
+  if (response.status === 401 || response.status === 403) {
+    state.billingAccessToken = "";
+    state.billingAccountLinked = false;
+    state.pendingCheckout = null;
+    await plugin.saveSettings();
+    new import_obsidian2.Notice("Tundra: your billing session expired. Sign in again.", 5e3);
+    return;
+  }
+  if (response.status < 200 || response.status >= 300) {
+    new import_obsidian2.Notice(`Tundra: checkout could not be created (HTTP ${response.status}).`, 5e3);
+    return;
+  }
+  const data = (_b = response.json) == null ? void 0 : _b.data;
+  const checkoutId = String((data == null ? void 0 : data.checkout_id) || (data == null ? void 0 : data.id) || "");
+  const checkoutUrl = String((data == null ? void 0 : data.checkout_url) || "");
+  if (!checkoutId || !checkoutUrl) {
+    new import_obsidian2.Notice("Tundra: Constance returned an incomplete checkout response.", 5e3);
+    return;
+  }
+  state.pendingCheckout = { ...pending, checkoutId };
+  await plugin.saveSettings();
+  window.open(checkoutUrl, "_blank");
+  void pollCheckoutSettlement(plugin, checkoutId);
+}
+function resumePendingCheckout(plugin) {
+  const pending = plugin.settings.billing.pendingCheckout;
+  if (!pending) return;
+  if (pending.checkoutId) void pollCheckoutSettlement(plugin, pending.checkoutId);
+  else void startCheckout(plugin, pending.planCode);
 }
 async function reserveUse(plugin) {
   if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
@@ -517,18 +610,10 @@ async function syncBalance(plugin) {
   }
 }
 function openCheckout(plugin, tier) {
-  if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
-    new import_obsidian2.Notice("Sign in or create a billing account in Tundra settings before buying credits.", 5e3);
-    return;
-  }
-  const priceId = TUNDRA_PRICE_IDS[tier];
-  const email = plugin.settings.billing.billingEmail.trim();
-  if (!email || !email.includes("@")) {
-    new import_obsidian2.Notice("Enter a valid billing email in Tundra settings first.", 5e3);
-    return;
-  }
-  const params = new URLSearchParams({ app_id: CONSTANCE_APP_ID, price_id: priceId, email, external_customer_id: plugin.settings.billing.deviceId });
-  window.open(`${CONSTANCE_BASE_URL}/buy?${params.toString()}`, "_blank");
+  void startCheckout(plugin, TUNDRA_PLAN_CODES[tier]).catch((error) => {
+    console.error("Tundra: authenticated checkout failed", error);
+    new import_obsidian2.Notice("Tundra: checkout could not be started. Retry from settings.", 5e3);
+  });
 }
 
 // plugin-support.ts
@@ -652,6 +737,7 @@ var TundraPlugin = class extends import_obsidian4.Plugin {
     this.settings.billing = ensureBillingState(this.settings.billing);
     await this.saveSettings();
     void retryPendingCreditSpends(this);
+    resumePendingCheckout(this);
     this.addCommand({ id: "open-wrangler", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
     this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open());
     this.addSettingTab(new TundraSettingTab(this.app, this));
