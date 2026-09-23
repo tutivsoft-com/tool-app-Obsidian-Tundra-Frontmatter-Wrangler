@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.5.2 - 2026-09-23
+
+- Corrected the $1 and $10 credit pack checkout mapping to the live catalog.
+- Check outstanding charges and the current credit balance before changing notes.
+- Review checkboxes now immediately enable the apply button when all changes are reviewed.
+- Skip billing authorization when every previewed note has changed or disappeared before apply.
+
+## 3.5.1 - 2026-09-23
+
+- Fixed format-only previews, exact YAML closing-delimiter detection, BOM safety, and preservation of prototype-named properties.
+
+## 3.5.0 - 2026-09-23
+
+- Added AI-assisted frontmatter proposals for review before the existing guarded apply and rollback workflow.
+
 ## 3.4.10 - 2026-09-22
 
 - Migrated authenticated checkout to the Contract v9 plan-code endpoint with idempotency and settlement polling.

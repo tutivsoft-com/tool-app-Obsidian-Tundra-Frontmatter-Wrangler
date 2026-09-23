@@ -11,11 +11,14 @@ var scalar = (value) => {
 function parseFrontmatter(content) {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const normalized = content.replace(/\r\n/g, "\n");
+  if (normalized.startsWith("\uFEFF")) return { frontmatter: {}, body: content, hasFrontmatter: normalized.startsWith("\uFEFF---\n"), safe: false, error: "A UTF-8 BOM at the start of the note is not supported safely by this parser.", newline };
   if (!normalized.startsWith("---\n") && normalized !== "---") return { frontmatter: {}, body: content, hasFrontmatter: false, safe: true, newline };
-  const end = normalized.indexOf("\n---", 4);
-  if (end < 0) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter opening delimiter has no closing delimiter.", newline };
-  const header = normalized.slice(4, end);
-  const body = normalized.slice(end + 4).replace(/^\n/, "");
+  const closingDelimiter = /\n---[ \t]*(?:\n|$)/g;
+  closingDelimiter.lastIndex = 3;
+  const closingMatch = closingDelimiter.exec(normalized);
+  if (!closingMatch) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter opening delimiter has no closing delimiter.", newline };
+  const header = normalized.slice(4, closingMatch.index);
+  const body = normalized.slice(closingMatch.index + closingMatch[0].length);
   const result = {};
   const lines = header.split("\n");
   let listKey;
@@ -30,17 +33,17 @@ function parseFrontmatter(content) {
     const match = /^(?!\s)([^:#][^:]*):(?:\s*(.*))?$/.exec(line);
     if (!match) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Cannot safely parse line: ${line}`, newline };
     const key = match[1].trim();
-    if (result[key] !== void 0) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Duplicate property: ${key}`, newline };
+    if (Object.prototype.hasOwnProperty.call(result, key)) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Duplicate property: ${key}`, newline };
     const raw = match[2] ?? "";
     if (!raw) {
-      result[key] = [];
+      Object.defineProperty(result, key, { value: [], writable: true, enumerable: true, configurable: true });
       listKey = key;
       continue;
     }
     if (raw.startsWith("{") || raw.endsWith("}")) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Unsupported inline object for property: ${key}`, newline };
-    if (raw.startsWith("[") && raw.endsWith("]")) result[key] = raw.slice(1, -1).split(",").filter(Boolean).map(scalar);
+    if (raw.startsWith("[") && raw.endsWith("]")) Object.defineProperty(result, key, { value: raw.slice(1, -1).split(",").filter(Boolean).map(scalar), writable: true, enumerable: true, configurable: true });
     else {
-      result[key] = scalar(raw);
+      Object.defineProperty(result, key, { value: scalar(raw), writable: true, enumerable: true, configurable: true });
       listKey = void 0;
     }
   }
@@ -131,9 +134,28 @@ function applyOperation(note, operation) {
   const before = stringifyFrontmatter(note.frontmatter, note.body, note.newline);
   return { note: { ...note, frontmatter: fm }, changed: after !== before, conversion };
 }
-function planOperation(notes, operation) {
+function planOperation(notes, operation, aiUpdates = {}, aiErrors = {}) {
   return notes.map(({ path, content }) => {
     const parsed = parseFrontmatter(content);
+    if (operation.kind === "format") {
+      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsafe frontmatter", before: content };
+      if (!parsed.hasFrontmatter) return { path, status: "skipped", reason: "No frontmatter", before: content };
+      const after = stringifyFrontmatter(parsed.frontmatter, parsed.body, parsed.newline);
+      return after === content ? { path, status: "unchanged", before: content } : { path, status: "changed", before: content, after };
+    }
+    if (operation.kind === "ai-frontmatter") {
+      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsafe frontmatter", before: content };
+      if (aiErrors[path]) return { path, status: "failed", reason: aiErrors[path], before: content };
+      const updates = aiUpdates[path];
+      if (!updates || Object.keys(updates).length === 0) return { path, status: "skipped", reason: "AI returned no supported properties", before: content };
+      const frontmatter = structuredClone(parsed.frontmatter);
+      for (const [key, value] of Object.entries(updates)) {
+        if (Object.prototype.hasOwnProperty.call(frontmatter, key) && operation.aiConflict !== "replace") continue;
+        frontmatter[key] = value;
+      }
+      const after = stringifyFrontmatter(frontmatter, parsed.body, parsed.newline);
+      return after === content ? { path, status: "unchanged", before: content } : { path, status: "changed", before: content, after };
+    }
     if (!parsed.hasFrontmatter && operation.kind !== "add-tags") return { path, status: "skipped", reason: "No frontmatter", before: content };
     const result = applyOperation(parsed, operation);
     return { path, status: result.changed ? "changed" : result.reason ? "skipped" : "unchanged", reason: result.reason, conversion: result.conversion, before: content, after: result.changed ? stringifyFrontmatter(result.note.frontmatter, result.note.body, result.note.newline) : void 0 };

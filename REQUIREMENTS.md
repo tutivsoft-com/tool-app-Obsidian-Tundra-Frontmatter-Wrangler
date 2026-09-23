@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Product Requirements
 
-Status: implemented — 3.4.6 billing live-catalog release
+Status: implemented — 3.5.2 AI-assisted frontmatter proposals, deterministic operations, and billing
 
 ## Product promise
 
@@ -57,7 +57,7 @@ Tundra lets users normalize metadata across hundreds of notes through a safe pre
 25. Allow the user to inspect every affected note before confirmation.
 26. Create backups or an undo journal containing original content for every changed note.
 27. Apply changes per note with progress, cancellation, and independent error handling.
-28. Never partially rewrite a note if its frontmatter cannot be parsed safely.
+28. Never partially rewrite a note if its frontmatter cannot be parsed safely. Match the complete YAML closing delimiter, preserve delimiter-like body text and unusual property names, and skip BOM-prefixed notes when safe preservation is not supported.
 29. Provide a post-run summary with changed, skipped, failed, and unchanged notes.
 30. Provide one-click rollback for the most recent batch and a way to open the operation log.
 31. Use a confirmation message that states the exact operation, selection count, and irreversible consequences.
@@ -72,14 +72,14 @@ Tundra lets users normalize metadata across hundreds of notes through a safe pre
 
 ## AI decision and credit model
 
-AI is optional, not required for the MVP. A paid assistant may later:
+AI is optional. When selected, it may generate or update only the user-requested top-level properties from note content and existing metadata.
 
-- suggest old-to-new key mappings from a property inventory;
-- propose a schema from representative metadata;
-- suggest tag normalization or related tags;
-- classify ambiguous values for user review.
+- generate or update the requested top-level property values per selected note;
+- preserve existing values by default, with a deliberate replace option;
+- return scalar or flat list values only; nested objects are rejected;
+- surface malformed notes and failed provider responses without writing them.
 
-AI must generate a proposed plan, never apply changes directly. The user must approve the plan and preview. Charge credits only for an explicit AI request, show estimated cost before sending data, minimize the sample sent, and disclose that note metadata leaves the vault. Deterministic planning and preview remain local; applied write batches use the billing model below.
+AI must generate proposals, never apply changes directly. The user must explicitly confirm before note content leaves the vault, then review every changed note in the preview. Send no more than 12,000 body characters per note, exclude file paths, treat note text as untrusted input, filter suggestions to the requested keys, and reject nested values. Tundra requires a user-supplied OpenRouter key and does not bundle or proxy an AI key. Show the selected model, note count, sent-data scope, and that OpenRouter may charge the user's account before sending. AI suggestions use the user's OpenRouter account; the existing Tundra credit applies only to a reviewed non-empty write batch.
 
 ## Billing model
 
@@ -114,6 +114,6 @@ AI must generate a proposed plan, never apply changes directly. The user must ap
 - Tags are added idempotently and existing tags are preserved unless removal is explicit.
 - Schema reorder changes key order without changing values or note bodies.
 - Every changed note has recovery data and the most recent batch can be rolled back.
-- Core planning operations work offline and with AI disabled; paid apply authorization uses optional network access after the daily free allowance.
+- Deterministic planning works offline. AI generation requires explicit user confirmation and an OpenRouter key; paid apply authorization uses optional network access after the daily free allowance.
 - Billing never runs during preview or rollback and does not charge a no-op apply.
 - A paid apply batch is charged at most once, after the user reviews the preview and confirms apply.

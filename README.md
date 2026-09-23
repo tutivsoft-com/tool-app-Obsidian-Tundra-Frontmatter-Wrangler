@@ -1,8 +1,8 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.4.10`
+Version: `3.5.2`
 
-Tundra is an offline-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. It keeps the common path simple: select notes, inspect the inventory, configure one deterministic operation, preview it, apply it, and review the result.
+Tundra is a local-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. Deterministic operations run locally; optional AI generation and paid billing need network access. The common path stays simple: select notes, inspect the inventory, configure an operation, preview it, apply it, and review the result.
 
 ## MVP workflow
 
@@ -10,7 +10,7 @@ The command `Tundra: Open frontmatter wrangler` and the ribbon wrench open six s
 
 1. **Select** — choose a folder, include or exclude subfolders, filter by a top-level property, and search note paths/bodies.
 2. **Inspect** — review inventory counts and manually check the exact included note list. Malformed frontmatter is surfaced, never silently rewritten.
-3. **Configure** — choose a property rename, explicitly confirmed property removal, tag operation, schema reorder, or format-only reorder.
+3. **Configure** — choose a property rename or removal, tag operation, schema reorder, format-only cleanup, or AI-assisted property generation.
 4. **Preview** — inspect representative diffs and aggregate changed/unchanged/skipped/failed counts. Every affected note must be marked reviewed, and each can be included or excluded from the apply batch.
 5. **Apply** — process notes independently with progress, cancellation, stale-preview protection, and per-note error handling.
 6. **Review** — see the post-run summary, open the local operation log, or rollback the most recent batch.
@@ -40,15 +40,18 @@ secret or credential is embedded in the plugin.
 - Add, remove, or replace tags while preserving existing tags and de-duplicating them. String and list forms are supported; malformed tag values are reported and left untouched.
 - Normalize tags only with an exact supported rule selected by the user: `lowercase`, `spaces to hyphens`, or `slash separators`. Unknown rules are rejected; there is no hidden spelling conversion.
 - Reorder a preferred top-level schema with move-up/move-down controls. Unknown keys retain their existing relative order and can be placed before or after the preferred keys.
-- Format-only reorder is intentionally separate from semantic operations.
+- Format-only cleanup canonicalizes supported YAML formatting without changing values.
+- Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. Each result is reviewed in the ordinary diff preview before apply.
 
-The MVP is limited to top-level properties. Nested schema paths, conditional transforms, scheduling, and AI suggestions are future work. Deterministic planning and preview remain local; network access is used only for optional Constance balance synchronization and paid batch authorization.
+The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step: it sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter only after confirmation. Configure your own OpenRouter API key and model in settings; Tundra has no built-in AI key. OpenRouter may charge your account. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
 
 ## Safety model
 
-Tundra parses frontmatter before planning. A missing or malformed frontmatter block is skipped and is never partially rewritten. The body is carried through unchanged. Before every successful write, the plugin checks that the note still matches the preview, stores the exact original content in the most recent undo journal, and writes the note independently of other notes. Rollback only restores a note when its current content still matches the batch output, so later edits are not overwritten.
+Tundra parses frontmatter before planning. Malformed frontmatter is skipped and never partially rewritten. Operations that edit existing properties skip notes without frontmatter; tag addition and AI generation can create a frontmatter block. The body is carried through unchanged. Before every successful write, the plugin checks that the note still matches the preview, stores the exact original content in the most recent undo journal, and writes the note independently of other notes. Rollback only restores a note when its current content still matches the batch output, so later edits are not overwritten.
 
 Comments, nested YAML, and other constructs outside the conservative top-level parser are skipped rather than risking lost user formatting.
+
+Notes with a leading UTF-8 BOM and frontmatter the parser cannot safely represent are skipped. YAML closing markers must occupy a complete line; delimiter-like text in the note body is preserved. Prototype-named properties such as `__proto__` are retained as ordinary frontmatter keys.
 
 The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Representative inventory values are truncated to avoid exposing unnecessary note content. Billing stores only the device ID, checkout email, daily free-use counter, and purchased-credit mirror.
 
@@ -60,7 +63,7 @@ npm run check
 npm run build
 ```
 
-The public plugin source and runtime artifacts are in `publish/`. The built `publish/main.js` is generated and is not committed by default; Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`.
+The public plugin source and runtime artifacts are mirrored in `publish/`. The built `publish/main.js` is generated and committed as the runtime bundle; Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`.
 
 ## License
 

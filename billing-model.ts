@@ -1,5 +1,11 @@
 export const FREE_USES_PER_DAY = 3;
 
+/** Public credit packs from the live Constance catalog (2026-09-23). */
+export const TUNDRA_CREDIT_PACKS = [
+  { priceUsd: 1, credits: 100, planCode: "one_time", priceId: "pri_01m28hmkzcn3cf9e04qq1s9jw6" },
+  { priceUsd: 10, credits: 1000, planCode: "standard", priceId: "pri_01m28hmmvr4zs9enh6tptd7gjy" },
+] as const;
+
 export interface BillingState {
   deviceId: string;
   billingEmail: string;

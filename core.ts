@@ -3,7 +3,7 @@ export type FrontmatterValue = Scalar | Scalar[] | Record<string, unknown>;
 export type Frontmatter = Record<string, FrontmatterValue>;
 
 export interface ParsedNote { frontmatter: Frontmatter; body: string; hasFrontmatter: boolean; safe: boolean; error?: string; newline: string; }
-export interface Operation { kind: "rename" | "remove" | "add-tags" | "remove-tags" | "replace-tag" | "normalize-tags" | "reorder" | "format"; oldKey?: string; newKey?: string; tags?: string[]; fromTag?: string; toTag?: string; namespace?: string; rules?: string; order?: string[]; unknownPosition?: "before" | "after"; collision?: "keep" | "replace" | "merge" | "skip"; }
+export interface Operation { kind: "rename" | "remove" | "add-tags" | "remove-tags" | "replace-tag" | "normalize-tags" | "reorder" | "format" | "ai-frontmatter"; oldKey?: string; newKey?: string; tags?: string[]; fromTag?: string; toTag?: string; namespace?: string; rules?: string; order?: string[]; unknownPosition?: "before" | "after"; collision?: "keep" | "replace" | "merge" | "skip"; aiFields?: string[]; aiConflict?: "keep" | "replace"; }
 export interface ChangePlan { path: string; status: "changed" | "unchanged" | "skipped" | "failed"; reason?: string; before: string; after?: string; conversion?: string; }
 
 const scalar = (value: string): Scalar => {
@@ -19,11 +19,14 @@ const scalar = (value: string): Scalar => {
 export function parseFrontmatter(content: string): ParsedNote {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const normalized = content.replace(/\r\n/g, "\n");
+  if (normalized.startsWith("\uFEFF")) return { frontmatter: {}, body: content, hasFrontmatter: normalized.startsWith("\uFEFF---\n"), safe: false, error: "A UTF-8 BOM at the start of the note is not supported safely by this parser.", newline };
   if (!normalized.startsWith("---\n") && normalized !== "---") return { frontmatter: {}, body: content, hasFrontmatter: false, safe: true, newline };
-  const end = normalized.indexOf("\n---", 4);
-  if (end < 0) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter opening delimiter has no closing delimiter.", newline };
-  const header = normalized.slice(4, end);
-  const body = normalized.slice(end + 4).replace(/^\n/, "");
+  const closingDelimiter = /\n---[ \t]*(?:\n|$)/g;
+  closingDelimiter.lastIndex = 3;
+  const closingMatch = closingDelimiter.exec(normalized);
+  if (!closingMatch) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter opening delimiter has no closing delimiter.", newline };
+  const header = normalized.slice(4, closingMatch.index);
+  const body = normalized.slice(closingMatch.index + closingMatch[0].length);
   const result: Frontmatter = {};
   const lines = header.split("\n");
   let listKey: string | undefined;
@@ -38,12 +41,12 @@ export function parseFrontmatter(content: string): ParsedNote {
     const match = /^(?!\s)([^:#][^:]*):(?:\s*(.*))?$/.exec(line);
     if (!match) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Cannot safely parse line: ${line}`, newline };
     const key = match[1].trim();
-    if (result[key] !== undefined) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Duplicate property: ${key}`, newline };
+    if (Object.prototype.hasOwnProperty.call(result, key)) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Duplicate property: ${key}`, newline };
     const raw = match[2] ?? "";
-    if (!raw) { result[key] = []; listKey = key; continue; }
+    if (!raw) { Object.defineProperty(result, key, { value: [], writable: true, enumerable: true, configurable: true }); listKey = key; continue; }
     if (raw.startsWith("{") || raw.endsWith("}")) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: `Unsupported inline object for property: ${key}`, newline };
-    if (raw.startsWith("[") && raw.endsWith("]")) result[key] = raw.slice(1, -1).split(",").filter(Boolean).map(scalar);
-    else { result[key] = scalar(raw); listKey = undefined; }
+    if (raw.startsWith("[") && raw.endsWith("]")) Object.defineProperty(result, key, { value: raw.slice(1, -1).split(",").filter(Boolean).map(scalar), writable: true, enumerable: true, configurable: true });
+    else { Object.defineProperty(result, key, { value: scalar(raw), writable: true, enumerable: true, configurable: true }); listKey = undefined; }
   }
   return { frontmatter: result, body, hasFrontmatter: true, safe: true, newline };
 }
@@ -105,6 +108,32 @@ export function applyOperation(note: ParsedNote, operation: Operation): { note: 
   return { note: { ...note, frontmatter: fm }, changed: after !== before, conversion };
 }
 
-export function planOperation(notes: Array<{ path: string; content: string }>, operation: Operation): ChangePlan[] {
-  return notes.map(({ path, content }) => { const parsed = parseFrontmatter(content); if (!parsed.hasFrontmatter && operation.kind !== "add-tags") return { path, status: "skipped", reason: "No frontmatter", before: content }; const result = applyOperation(parsed, operation); return { path, status: result.changed ? "changed" : result.reason ? "skipped" : "unchanged", reason: result.reason, conversion: result.conversion, before: content, after: result.changed ? stringifyFrontmatter(result.note.frontmatter, result.note.body, result.note.newline) : undefined }; });
+export function planOperation(notes: Array<{ path: string; content: string }>, operation: Operation, aiUpdates: Record<string, Frontmatter> = {}, aiErrors: Record<string, string> = {}): ChangePlan[] {
+  return notes.map(({ path, content }) => {
+    const parsed = parseFrontmatter(content);
+    if (operation.kind === "format") {
+      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsafe frontmatter", before: content };
+      if (!parsed.hasFrontmatter) return { path, status: "skipped", reason: "No frontmatter", before: content };
+      const after = stringifyFrontmatter(parsed.frontmatter, parsed.body, parsed.newline);
+      return after === content ? { path, status: "unchanged", before: content } : { path, status: "changed", before: content, after };
+    }
+    if (operation.kind === "ai-frontmatter") {
+      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsafe frontmatter", before: content };
+      if (aiErrors[path]) return { path, status: "failed", reason: aiErrors[path], before: content };
+      const updates = aiUpdates[path];
+      if (!updates || Object.keys(updates).length === 0) return { path, status: "skipped", reason: "AI returned no supported properties", before: content };
+      const frontmatter = structuredClone(parsed.frontmatter) as Frontmatter;
+      for (const [key, value] of Object.entries(updates)) {
+        if (Object.prototype.hasOwnProperty.call(frontmatter, key) && operation.aiConflict !== "replace") continue;
+        frontmatter[key] = value;
+      }
+      const after = stringifyFrontmatter(frontmatter, parsed.body, parsed.newline);
+      return after === content
+        ? { path, status: "unchanged", before: content }
+        : { path, status: "changed", before: content, after };
+    }
+    if (!parsed.hasFrontmatter && operation.kind !== "add-tags") return { path, status: "skipped", reason: "No frontmatter", before: content };
+    const result = applyOperation(parsed, operation);
+    return { path, status: result.changed ? "changed" : result.reason ? "skipped" : "unchanged", reason: result.reason, conversion: result.conversion, before: content, after: result.changed ? stringifyFrontmatter(result.note.frontmatter, result.note.body, result.note.newline) : undefined };
+  });
 }

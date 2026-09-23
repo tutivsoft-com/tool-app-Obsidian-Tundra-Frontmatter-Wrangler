@@ -2,7 +2,15 @@
 
 - Updated Constance checkout to use the authenticated plan-code flow, stable idempotency, and webhook-authoritative settlement polling.
 
-# Tundra Frontmatter Wrangler 3.4.6
+# Tundra Frontmatter Wrangler 3.5.2
+
+## 3.5.2 - 2026-09-23
+
+The $1 and $10 checkout buttons now select the matching live credit packs. Tundra reconciles pending charges and refreshes purchased credit balances before applying changes. Reviewing a diff immediately updates the apply button. Billing is skipped when no previewed changes remain applicable.
+
+## 3.5.1 - 2026-09-23
+
+AI-assisted frontmatter proposals are available inside the existing reviewed bulk workflow.
 
 ## 3.4.6 - 2026-09-20
 

@@ -1,5 +1,9 @@
 // billing-model.ts
 var FREE_USES_PER_DAY = 3;
+var TUNDRA_CREDIT_PACKS = [
+  { priceUsd: 1, credits: 100, planCode: "one_time", priceId: "pri_01m28hmkzcn3cf9e04qq1s9jw6" },
+  { priceUsd: 10, credits: 1e3, planCode: "standard", priceId: "pri_01m28hmmvr4zs9enh6tptd7gjy" }
+];
 function localCalendarDate(date = /* @__PURE__ */ new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -53,6 +57,7 @@ function isBillableWriteBatch(changedCount) {
 }
 export {
   FREE_USES_PER_DAY,
+  TUNDRA_CREDIT_PACKS,
   claimLocalAllowance,
   defaultBillingState,
   isBillableWriteBatch,

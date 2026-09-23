@@ -5,7 +5,7 @@ import {
   isBillableWriteBatch,
   localCalendarDate,
   normalizeBillingState,
-  restorePurchasedAllowance,
+  TUNDRA_CREDIT_PACKS,
   type BillingState,
 } from "./billing-model";
 import { claimAccountFreeUsage, spendAccountCredits } from "./constance-account";
@@ -15,8 +15,8 @@ export const CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
 export const CONSTANCE_APP_ID = "tundra-frontmatter-wrangler";
 
 export const TUNDRA_PLAN_CODES = {
-  usd001: "standard",
-  usd010: "pro",
+  usd001: TUNDRA_CREDIT_PACKS[0].planCode,
+  usd010: TUNDRA_CREDIT_PACKS[1].planCode,
 } as const;
 
 function makeDeviceId(): string {
@@ -174,6 +174,11 @@ export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation |
     new Notice("Tundra: sign in or create a billing account in plugin settings before applying changes.", 5000);
     return null;
   }
+  await retryPendingCreditSpends(plugin);
+  if (plugin.settings.billing.pendingCreditSpends.length > 0) {
+    new Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5000);
+    return null;
+  }
   const today = localCalendarDate();
   const current = ensureBillingState(plugin.settings.billing);
   const claim = claimLocalAllowance(current, today);
@@ -213,6 +218,13 @@ export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation |
     }
   }
 
+  // The local balance can be stale after a purchase or another installation's
+  // spend. Confirm it before changing any notes.
+  const freshBalance = await syncBalance(plugin);
+  if (freshBalance.kind !== "ok" || freshBalance.balance < 1) {
+    new Notice("Tundra: purchased credits could not be verified. Refresh your balance and try again.", 5000);
+    return null;
+  }
   const stableEventId = generateEventId();
   plugin.settings.billing.pendingCreditSpends.push(stableEventId);
   await plugin.saveSettings();
@@ -233,7 +245,6 @@ export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation |
     rollback: async () => {
       if (settled) return;
       plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
-      plugin.settings.billing = restorePurchasedAllowance(plugin.settings.billing);
       await plugin.saveSettings();
     },
   };
