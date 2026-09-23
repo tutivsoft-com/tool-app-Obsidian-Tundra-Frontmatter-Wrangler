@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Product Requirements
 
-Status: implemented — 3.5.2 AI-assisted frontmatter proposals, deterministic operations, and billing
+Status: implemented — 3.5.3; this documentation release leaves the 3.5.2 runtime behavior unchanged.
 
 ## Product promise
 

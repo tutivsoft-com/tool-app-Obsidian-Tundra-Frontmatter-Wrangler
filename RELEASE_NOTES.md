@@ -1,8 +1,8 @@
-## 3.4.10 - 2026-09-22
+# Tundra Frontmatter Wrangler release notes
 
-- Updated Constance checkout to use the authenticated plan-code flow, stable idempotency, and webhook-authoritative settlement polling.
+## 3.5.3 - 2026-09-24
 
-# Tundra Frontmatter Wrangler 3.5.2
+Documentation and release metadata update. The 3.5.2 runtime is unchanged; the release adds clear feature, requirements, architecture, and marketing references.
 
 ## 3.5.2 - 2026-09-23
 
@@ -11,6 +11,14 @@ The $1 and $10 checkout buttons now select the matching live credit packs. Tundr
 ## 3.5.1 - 2026-09-23
 
 AI-assisted frontmatter proposals are available inside the existing reviewed bulk workflow.
+
+## 3.5.0 - 2026-09-23
+
+Added optional AI-assisted proposals for selected top-level properties. Suggestions remain subject to the normal per-note review and apply flow.
+
+## 3.4.10 - 2026-09-22
+
+- Updated Constance checkout to use the authenticated plan-code flow, stable idempotency, and webhook-authoritative settlement polling.
 
 ## 3.4.6 - 2026-09-20
 

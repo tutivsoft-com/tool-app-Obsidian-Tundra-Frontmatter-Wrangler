@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.3 - 2026-09-24
+
+- Added current feature, architecture, requirements, and marketing documentation.
+- Clarified benefit claims and synchronized release metadata; runtime behavior is unchanged from 3.5.2.
+
 ## 3.5.2 - 2026-09-23
 
 - Corrected the $1 and $10 credit pack checkout mapping to the live catalog.
