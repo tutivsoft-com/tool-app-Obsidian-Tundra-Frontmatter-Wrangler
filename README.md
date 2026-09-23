@@ -20,12 +20,15 @@ The command `Tundra: Open frontmatter wrangler` and the ribbon wrench open six s
 Tundra includes three free non-empty apply batches per local calendar day. After
 those are used, each non-empty, reviewed apply batch authorizes one purchased
 credit. Previewing, planning a no-op, and rolling back never consume credits.
+Tundra checks that at least one previewed change is still applicable before
+claiming a use. A later write failure can still consume a free use because the
+billing service has no free-claim refund operation.
 
 Purchased credits are one-time packs: $1 for 100 credits or $10 for 1,000
 credits. The settings tab stores a billing email for the receipt, shows the
 local mirror of the purchased balance, provides a manual balance sync, and
 opens Constance's authenticated checkout using the catalog plan codes
-`standard` and `pro`; Constance resolves the current price IDs server-side and
+`one_time` for $1/100 and `standard` for $10/1,000; Constance resolves the current price IDs server-side and
 the plugin polls checkout settlement before refreshing the balance.
 
 Billing uses Constance's authenticated account endpoints with the unique
