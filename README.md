@@ -1,19 +1,23 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.5.4`
+Version: `3.6.5`
 
-Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across a large collection of Markdown notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Choose a working set and operation, then run it. Tundra applies the plan, reports the result, and keeps a rollback journal.
+Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Open the wrangler from a note, choose an operation, review the preview, and apply it. Tundra keeps a rollback journal.
+
+See [Frontmatter Interoperability Field Guide](./FRONTMATTER_INTEROPERABILITY_FIELD_GUIDE.md) for the cumulative 4/9/21/50-field tiers, with `image` included from Bare Minimum upward.
 
 ## MVP workflow
 
-The command `Tundra Frontmatter Wrangler: Open frontmatter wrangler` and the ribbon wrench open six steps:
+Open Tundra from the command palette or ribbon, or right-click a note, folder, or multi-selection in the File Explorer. Right-click in a note editor to target that note. The command palette also has direct current-note and current-folder actions.
 
-1. **Select** — choose a folder, include or exclude subfolders, filter by a top-level property, and search note paths/bodies.
-2. **Inventory** — Tundra counts matching notes automatically; the inventory remains available to inspect. Malformed frontmatter is skipped.
-3. **Configure** — choose a property rename or removal, tag operation, schema reorder, format-only cleanup, or AI-assisted property generation.
-4. **Run** — Tundra generates a plan and applies applicable changes without a second approval step.
-5. **Apply** — process notes independently with progress, cancellation, stale-preview protection, and per-note error handling.
-6. **Review** — see the post-run summary, open the local operation log, or rollback the most recent batch.
+The compact workflow is:
+
+1. **Choose a target** — the open note is selected by default. Use Obsidian's searchable picker for another note or folder, or deliberately select the entire vault. Optional filters are collapsed until needed.
+2. **Choose an operation** — generate frontmatter is the default; deterministic property, tag, and formatting operations remain available. AI tier and existing-value behavior are reusable Settings defaults.
+3. **Apply** — configured-operation commands run directly with progress, cancellation, stale-preview protection, and per-note error handling. Turn on **Review before applying** in settings to show before/after changes and confirm the batch.
+4. **Review** — see the post-run summary, open the local operation log, or roll back the most recent batch.
+
+For a one-click run after setup, choose a **Default operation** and its values in settings, then use **Apply configured operation to current note** or **Apply configured operation to current folder**. Before/after review is off by default and can be enabled in settings.
 
 ## Billing
 
@@ -46,7 +50,7 @@ secret or credential is embedded in the plugin.
 - Format-only cleanup canonicalizes supported YAML formatting without changing values.
 - Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. The operation applies when launched and can be rolled back.
 
-The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step: it sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter when you run the AI operation. Tundra loads its own capped OpenRouter key automatically; a personal key and model change are optional in settings. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
+The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step with four cumulative tiers: Bare Minimum (4 fields), Standard (9, default), Advanced (21), and Huge (50). Each tier includes `image`. The request sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter when you run the AI operation, with a 10,000-token response ceiling. When `tags` is selected, Tundra asks for up to 20 relevant, standard lowercase Obsidian tags, returns fewer when appropriate, normalizes and de-duplicates them, and omits an empty tag list. Suggested `image` values are accepted only when the image reference appears in the note or its existing properties. Tundra loads its own capped OpenRouter key automatically; a personal key, model, AI tier, and existing-value behavior can be set once in Settings. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
 
 ## Safety model
 
@@ -56,7 +60,7 @@ Comments, nested YAML, and other constructs outside the conservative top-level p
 
 Notes with a leading UTF-8 BOM and frontmatter the parser cannot safely represent are skipped. YAML closing markers must occupy a complete line; delimiter-like text in the note body is preserved. Prototype-named properties such as `__proto__` are retained as ordinary frontmatter keys.
 
-The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Representative inventory values are truncated to avoid exposing unnecessary note content. Billing stores only the device ID, checkout email, daily free-use counter, and purchased-credit mirror.
+The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Billing stores only the device ID, checkout email, daily free-use counter, and purchased-credit mirror.
 
 ## Development
 

@@ -18,7 +18,8 @@ function parseFrontmatter(content) {
   const closingMatch = closingDelimiter.exec(normalized);
   if (!closingMatch) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter opening delimiter has no closing delimiter.", newline };
   const header = normalized.slice(4, closingMatch.index);
-  const body = normalized.slice(closingMatch.index + closingMatch[0].length);
+  const normalizedBody = normalized.slice(closingMatch.index + closingMatch[0].length);
+  const body = newline === "\r\n" ? normalizedBody.replace(/\n/g, "\r\n") : normalizedBody;
   const result = {};
   const lines = header.split("\n");
   let listKey;
@@ -62,7 +63,8 @@ function stringifyFrontmatter(frontmatter, body, newline = "\n") {
     else lines.push(`${key}: ${typeof value === "string" ? quote(value) : String(value)}`);
   }
   lines.push("---");
-  const output = lines.join(newline) + (body ? newline + body : "");
+  const normalizedBody = body.replace(/\r\n/g, "\n");
+  const output = lines.join("\n") + (normalizedBody ? "\n" + normalizedBody : "");
   return newline === "\r\n" ? output.replace(/\n/g, "\r\n") : output;
 }
 function normalizeTags(value) {

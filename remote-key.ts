@@ -2,7 +2,7 @@ import { requestUrl } from "obsidian";
 
 // Compatible with Antero's AES-256-GCM/PBKDF2 remote manifest format.
 const PASSPHRASE = "Kivu.RemoteKeyManifest.v1.2026D";
-const MANIFEST_URL = "https://raw.githubusercontent.com/tutivsoft-com/Resources/main/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public.txt";
+const MANIFEST_URL = "https://raw.githubusercontent.com/tutivsoft-com/Resources/main/tool-app-Obsidian-Tundra-Frontmatter-Wrangler.txt";
 
 interface Envelope { x: string; w: string; n: number; a: string; b: string; c: string; d: string; }
 interface Slot { ii?: string; s: string; v: Envelope; }

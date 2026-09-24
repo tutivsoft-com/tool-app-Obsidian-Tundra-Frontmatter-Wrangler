@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Product Requirements
 
-Status: implemented — 3.5.3; this documentation release leaves the 3.5.2 runtime behavior unchanged.
+Status: implemented — 3.6.4.
 
 ## Product promise
 
@@ -16,18 +16,16 @@ Tundra lets users normalize metadata across hundreds of notes through a recovera
 
 ## MVP note selection
 
-1. Select notes by folder, including optional subfolders.
-2. Select notes by a frontmatter/property filter.
-3. Select notes using a text or path query.
-4. Show the included and excluded notes for optional inspection.
-5. Show total selected notes, notes with frontmatter, notes without frontmatter, and notes that will be skipped.
-6. Support a dry-run inventory before any operation.
+1. Default the target to the currently open note; provide searchable Obsidian pickers for another note or a folder.
+2. Offer the entire vault only as an explicit target choice.
+3. Include folder descendants by default, with an optional direct-folder-only choice.
+4. Keep path/body and property filters available in a collapsed optional section.
+5. Show affected-note counts and proposed diffs in the preview instead of forcing a separate selection or inventory screen.
 
 ## MVP metadata operations
 
 ### Property keys
 
-7. Display a property inventory with key names, occurrence counts, sample types, and representative values without exposing more content than necessary.
 8. Rename a top-level property key across the selected notes.
 9. Detect when both the old and new keys exist in one note.
 10. Offer explicit collision choices: keep existing new key, replace it, merge values, or skip that note.
@@ -65,9 +63,9 @@ Tundra lets users normalize metadata across hundreds of notes through a recovera
 ## UX requirements
 
 32. Provide a command-palette command and a ribbon or settings entry to open the wrangler.
-33. Use a step-based interface: Select, Configure, Run, Review.
-34. Keep advanced collision and parser options hidden until needed.
-35. Allow saving and reusing named operation presets after the MVP if it does not complicate the first-run flow.
+33. Put target and operation selection in one compact setup view, followed by preview and results.
+34. Keep optional filters collapsed until needed; keep the open note as the default target.
+35. Keep reusable AI choices in Settings and provide sensible defaults.
 36. Never make the user edit raw YAML just to perform a standard operation.
 
 ## AI decision and credit model
@@ -79,7 +77,7 @@ AI is optional. When selected, it may generate or update only the user-requested
 - return scalar or flat list values only; nested objects are rejected;
 - surface malformed notes and failed provider responses without writing them.
 
-AI generates proposals for the selected operation and applies eligible changes in the same run, with rollback available. Send no more than 12,000 body characters per note, exclude file paths, treat note text as untrusted input, filter suggestions to the requested keys, and reject nested values. Tundra loads its own capped key from an encrypted remote manifest, with an optional personal key override; no plaintext key is bundled. Document the selected model, note count, and sent-data scope. A personal key override may charge the user's OpenRouter account. AI suggestions use Tundra's capped key by default; a personal override uses the user's account. A Tundra credit applies only to a non-empty write batch.
+AI generates proposals for the selected operation and applies eligible changes in the same run, with rollback available. Send no more than 12,000 body characters per note, exclude file paths, treat note text as untrusted input, filter suggestions to the requested keys, reject nested values, and cap provider responses at 10,000 tokens. Offer cumulative AI field tiers of 4, 9, 21, and 50 properties, with Standard (9) selected by default and `image` included in every tier. When tags are requested, ask for up to 20 relevant standard Obsidian tags, allow fewer when fewer are relevant, normalize and de-duplicate them, and omit the property when none are relevant. Accept an AI `image` only if its reference is already in the note body or existing image value. Tundra loads its own capped key from an encrypted remote manifest, with an optional personal key override; no plaintext key is bundled. Document the selected model, note count, sent-data scope, and response token ceiling. A personal key override may charge the user's OpenRouter account. AI suggestions use Tundra's capped key by default; a personal override uses the user's account. A Tundra credit applies only to a non-empty write batch.
 
 ## Billing model
 

@@ -1,5 +1,25 @@
 # Tundra Frontmatter Wrangler release notes
 
+## 3.6.5 - 2026-09-24
+
+Added direct context-menu entry points for notes, folders, and File Explorer multi-selections, plus command-palette actions for the current note and folder. Right-clicking inside an editor opens Tundra for that note.
+
+## 3.6.4 - 2026-09-24
+
+Tundra now opens on the current note and puts target selection and operation setup in one compact view. Searchable pickers handle alternate notes and folders, and optional filters stay collapsed. AI tier and existing-value behavior can be set once in Settings. Preview, write authorization, per-note stale checks, cancellation, recovery journal, and rollback remain in place. This update also fixes CRLF line endings when writing frontmatter to Windows-formatted notes.
+
+## 3.6.0 - 2026-09-24
+
+AI frontmatter generation now offers four cumulative field tiers (4, 9, 21, and 50 fields), with Standard (9) as the default and `image` in every tier. Tag requests ask for up to 20 relevant standard tags and normalize/deduplicate suggestions. Responses are capped at 10,000 tokens; proposed image references must occur in the note body or existing `image` property. Every suggestion remains in the normal review flow.
+
+## 3.5.5 - 2026-09-24
+
+Documentation-only update: aligned the interoperability guide with the cumulative field tiers. `image` is included in Bare Minimum and carried through all tiers. Runtime behavior is unchanged.
+
+## 3.5.4 - 2026-09-24
+
+Documentation-only update: added a 50-property interoperability guide for consistent frontmatter across Obsidian and other Markdown tools. Runtime behavior is unchanged.
+
 ## 3.5.3 - 2026-09-24
 
 Documentation and release metadata update. The 3.5.2 runtime is unchanged; the release adds clear feature, requirements, architecture, and marketing references.

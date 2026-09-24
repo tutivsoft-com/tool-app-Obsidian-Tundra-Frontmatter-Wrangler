@@ -1,17 +1,16 @@
 # Tundra Frontmatter Wrangler — Features
 
-Version: 3.5.3
+Version: 3.6.5
 
 Tundra helps Obsidian users make recoverable changes to top-level frontmatter across selected Markdown notes.
 
-## Guided bulk workflow
+## Fast, reviewable workflow
 
-1. **Select** notes by folder, subfolder choice, a top-level property filter, or a path/body query.
-2. **Inventory** counts and representative property values are available to inspect. Malformed frontmatter is skipped.
-3. **Configure** a deterministic operation or request an optional AI proposal.
-4. **Run** the selected operation; Tundra builds a plan and applies eligible changes without another approval step.
-5. **Apply** the batch with progress, cancellation, stale-plan checks, and independent per-note error handling.
-6. **Review** the summary, open the local operation log, or roll back the latest batch when it is still safe to do so.
+1. Open Tundra from the command palette, ribbon, note editor, File Explorer note/folder menu, or multi-selection menu. Editor/note/folder actions target their context directly.
+2. The open note is selected by default; searchable pickers select another note or folder, and the entire vault is an explicit option.
+3. Choose the operation in the same view. Optional path/body and property filters stay collapsed until needed.
+4. Preview and review proposed changes, then confirm once for the batch.
+5. Apply with progress, cancellation, stale-plan checks, and independent per-note error handling; inspect the summary or roll back the latest batch.
 
 ## Supported operations
 
@@ -21,6 +20,9 @@ Tundra helps Obsidian users make recoverable changes to top-level frontmatter ac
 - Reorder preferred top-level properties while choosing where unknown keys remain.
 - Canonicalize supported YAML formatting without changing semantic values.
 - Generate or update requested top-level properties with OpenRouter AI. AI results are proposals, not direct writes.
+- Choose cumulative AI field tiers in Settings: Bare Minimum (4), Standard (9, default), Advanced (21), or Huge (50); `image` is included in every tier.
+- Set the default behavior for existing AI properties in Settings: keep current values or replace with suggestions.
+- When tags are requested, ask for up to 20 relevant standard Obsidian tags, normalize and de-duplicate them, and return fewer when fewer are useful. Fabricated image references are discarded.
 
 ## Data safety and privacy
 
@@ -28,7 +30,7 @@ Tundra helps Obsidian users make recoverable changes to top-level frontmatter ac
 - Tundra skips malformed frontmatter, BOM-prefixed notes, and YAML structures the conservative top-level parser cannot safely preserve.
 - The note body is carried through unchanged. Each note is re-read before writing so a change made after preview is not overwritten.
 - A recovery journal stores exact originals. Rollback restores a note only while its current content still matches that batch's output.
-- An AI request is optional and uses Tundra's own capped OpenRouter key by default, with an optional personal override. It sends up to 12,000 body characters and existing top-level properties per selected note, without file paths; applied changes can be inspected and rolled back.
+- An AI request is optional and uses Tundra's own capped OpenRouter key by default, with an optional personal override. It sends up to 12,000 body characters and existing top-level properties per selected note, without file paths; each response is capped at 10,000 tokens, and applied changes can be inspected and rolled back.
 - No plaintext key is bundled. A personal override uses the user's OpenRouter account; Tundra's built-in key has a $2 cap.
 
 ## Optional billing

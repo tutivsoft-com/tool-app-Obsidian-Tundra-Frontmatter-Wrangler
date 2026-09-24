@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Marketing
 
-Version: 3.5.3
+Version: 3.6.0
 
 ## Product positioning
 
@@ -19,6 +19,7 @@ Obsidian users who maintain consistent properties and tags across many Markdown 
 - Skip malformed or unsupported frontmatter instead of silently rewriting it.
 - Detect stale previews, journal exact originals, and restore a batch only when the note still matches the batch output.
 - Use optional AI proposals for top-level properties while keeping the same write checks and rollback.
+- Choose a field tier, with Standard selected by default; AI can suggest up to 20 relevant normalized tags when requested.
 - Keep deterministic operations local; connect to billing only for account/credit tasks.
 
 ## Short description

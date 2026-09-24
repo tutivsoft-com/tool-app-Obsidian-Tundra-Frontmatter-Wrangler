@@ -1,8 +1,38 @@
 # Changelog
 
-## 3.5.4 - 2026-09-24
+## 3.6.6
+
+- Added saved operation defaults and direct current-note/folder commands with optional before/after review.
+
+
+## 3.6.5 - 2026-09-24
+
+- Added note-editor, File Explorer note/folder, and multi-selection context-menu actions that launch Tundra on the clicked target.
+- Added command-palette actions scoped to the current note and folder.
+
+## 3.6.4 - 2026-09-24
+
+- Replaced the multi-step selection and inventory wizard with a compact current-note-first workflow and searchable note/folder pickers.
+- Kept optional filters collapsed, moved reusable AI tier/value behavior to Settings, and simplified batch review to one confirmation.
+- Preserved preview checks, billing authorization, stale-note protection, journaling, cancellation, and rollback.
+
+## 3.6.1 - 2026-09-24
 
 - Loaded this repository's own $2 no-reset OpenRouter key from an encrypted manifest, with a personal key override.
+
+## 3.6.0 - 2026-09-24
+
+- Added four cumulative AI frontmatter tiers (4/9/21/50 fields), with Standard as the default and `image` in every tier.
+- Added a 10,000-token response cap and up-to-20 relevant normalized tag suggestions; invalid or fabricated image references are filtered.
+- Added automated tests using a real repository Markdown note and a mocked AI response; no note content was sent to OpenRouter.
+
+## 3.5.5 - 2026-09-24
+
+- Updated the frontmatter guide with cumulative 4/9/21/50-field tiers and promoted `image` to Bare Minimum; runtime behavior is unchanged.
+
+## 3.5.4 - 2026-09-24
+
+- Added a cross-app frontmatter interoperability guide with 50 ranked property names; runtime behavior is unchanged.
 
 ## 3.5.3 - 2026-09-24
 

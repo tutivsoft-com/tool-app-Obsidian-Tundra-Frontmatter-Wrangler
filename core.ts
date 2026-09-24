@@ -3,7 +3,7 @@ export type FrontmatterValue = Scalar | Scalar[] | Record<string, unknown>;
 export type Frontmatter = Record<string, FrontmatterValue>;
 
 export interface ParsedNote { frontmatter: Frontmatter; body: string; hasFrontmatter: boolean; safe: boolean; error?: string; newline: string; }
-export interface Operation { kind: "rename" | "remove" | "add-tags" | "remove-tags" | "replace-tag" | "normalize-tags" | "reorder" | "format" | "ai-frontmatter"; oldKey?: string; newKey?: string; tags?: string[]; fromTag?: string; toTag?: string; namespace?: string; rules?: string; order?: string[]; unknownPosition?: "before" | "after"; collision?: "keep" | "replace" | "merge" | "skip"; aiFields?: string[]; aiConflict?: "keep" | "replace"; }
+export interface Operation { kind: "rename" | "remove" | "add-tags" | "remove-tags" | "replace-tag" | "normalize-tags" | "reorder" | "format" | "ai-frontmatter"; oldKey?: string; newKey?: string; tags?: string[]; fromTag?: string; toTag?: string; namespace?: string; rules?: string; order?: string[]; unknownPosition?: "before" | "after"; collision?: "keep" | "replace" | "merge" | "skip"; aiTier?: "bare-minimum" | "standard" | "advanced" | "huge"; aiFields?: string[]; aiConflict?: "keep" | "replace"; }
 export interface ChangePlan { path: string; status: "changed" | "unchanged" | "skipped" | "failed"; reason?: string; before: string; after?: string; conversion?: string; }
 
 const scalar = (value: string): Scalar => {
@@ -26,7 +26,8 @@ export function parseFrontmatter(content: string): ParsedNote {
   const closingMatch = closingDelimiter.exec(normalized);
   if (!closingMatch) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter opening delimiter has no closing delimiter.", newline };
   const header = normalized.slice(4, closingMatch.index);
-  const body = normalized.slice(closingMatch.index + closingMatch[0].length);
+  const normalizedBody = normalized.slice(closingMatch.index + closingMatch[0].length);
+  const body = newline === "\r\n" ? normalizedBody.replace(/\n/g, "\r\n") : normalizedBody;
   const result: Frontmatter = {};
   const lines = header.split("\n");
   let listKey: string | undefined;
@@ -60,7 +61,8 @@ export function stringifyFrontmatter(frontmatter: Frontmatter, body: string, new
     else lines.push(`${key}: ${typeof value === "string" ? quote(value) : String(value)}`);
   }
   lines.push("---");
-  const output = lines.join(newline) + (body ? newline + body : "");
+  const normalizedBody = body.replace(/\r\n/g, "\n");
+  const output = lines.join("\n") + (normalizedBody ? "\n" + normalizedBody : "");
   return newline === "\r\n" ? output.replace(/\n/g, "\r\n") : output;
 }
 
