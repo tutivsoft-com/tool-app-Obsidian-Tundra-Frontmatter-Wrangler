@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Features
 
-Version: 3.6.9
+Version: 3.6.10
 
 Tundra helps Obsidian users make recoverable changes to top-level frontmatter across selected Markdown notes.
 

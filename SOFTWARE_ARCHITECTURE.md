@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Software Architecture
 
-Version: 3.6.9
+Version: 3.6.10
 
 ## Runtime boundaries
 

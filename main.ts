@@ -1,7 +1,7 @@
 import { App, ButtonComponent, FuzzySuggestModal, Menu, Modal, Notice, Plugin, PluginSettingTab, requestUrl, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
 import { resolveOpenRouterKey } from "./remote-key";
 import { Frontmatter, Operation, parseFrontmatter, planOperation, ChangePlan } from "./core";
-import { defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, openCheckout, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
+import { checkUseAvailable, defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, openCheckout, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
 import { TUNDRA_CREDIT_PACKS, type BillingState } from "./billing-model";
 import { addBillingAccountSettings } from "./constance-account";
 import { PluginSupport } from "./plugin-support";
@@ -307,6 +307,11 @@ class WranglerModal extends Modal {
     this.files = await this.selectFiles();
     if (!this.files.length) { this.plugin.support.info("operation.plan.empty", { operation: this.operation.kind, scope: this.targetScope }); new Notice("No Markdown notes match this target and its filters.", 5000); return; }
     this.plugin.support.info("operation.targets.selected", { operation: this.operation.kind, scope: this.targetScope, total: this.files.length });
+    if (this.operation.kind === "ai-frontmatter" && !(await checkUseAvailable(this.plugin))) {
+      this.plugin.support.warn("billing.preflight.rejected", { operation: this.operation.kind, outcome: "unavailable" });
+      return;
+    }
+    if (this.operation.kind === "ai-frontmatter") this.plugin.support.info("billing.preflight.approved", { operation: this.operation.kind });
     await this.buildPlan();
     this.plugin.support.info("operation.plan.completed", {
       operation: this.operation.kind,

@@ -2,6 +2,7 @@ import { Notice, requestUrl } from "obsidian";
 import type TundraPlugin from "./main";
 import {
   claimLocalAllowance,
+  FREE_USES_PER_DAY,
   isBillableWriteBatch,
   localCalendarDate,
   normalizeBillingState,
@@ -78,6 +79,51 @@ export async function retryPendingCreditSpends(plugin: TundraPlugin): Promise<vo
     plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
     plugin.settings.billing.purchasedCredits = result.kind === "insufficient" ? 0 : result.balance;
     await plugin.saveSettings();
+  }
+}
+
+/** Read the canonical allowance before making a billable OpenRouter request. */
+export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> {
+  const state = plugin.settings.billing;
+  if (!state.billingAccessToken || !state.billingAccountLinked) {
+    new Notice("Tundra: sign in or create a billing account in plugin settings before using AI.", 5000);
+    return false;
+  }
+  await retryPendingCreditSpends(plugin);
+  if (plugin.settings.billing.pendingCreditSpends.length > 0) {
+    new Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5000);
+    return false;
+  }
+  try {
+    const query = new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId });
+    const response = await requestUrl({
+      url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${query.toString()}`,
+      method: "GET",
+      headers: { Authorization: `Bearer ${state.billingAccessToken}` },
+      throw: false,
+    });
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      state.billingAccessToken = "";
+      state.billingAccountLinked = false;
+      await plugin.saveSettings();
+      new Notice("Tundra: your billing session expired. Sign in again before using AI.", 5000);
+      return false;
+    }
+    if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
+    const entitlements = response.json?.data;
+    const freeRemaining = Math.max(0, Number(entitlements?.free_usage?.remaining) || 0);
+    const paidBalance = Math.max(0, Number(entitlements?.credits?.balance) || 0);
+    const today = localCalendarDate();
+    state.freeUsageDate = today;
+    state.freeUsesRemaining = Math.min(FREE_USES_PER_DAY, Math.floor(freeRemaining));
+    state.purchasedCredits = Math.floor(paidBalance);
+    await plugin.saveSettings();
+    if (freeRemaining > 0 || paidBalance > 0) return true;
+    new Notice("Tundra: today's free allowance is exhausted and no purchased credits remain.", 5000);
+    return false;
+  } catch {
+    new Notice("Tundra: billing could not be verified. No AI request was sent.", 5000);
+    return false;
   }
 }
 

@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.6.9`
+Version: `3.6.10`
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Configured note, folder, and selection actions run directly without opening a progress window; before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
 
@@ -39,6 +39,11 @@ Billing uses Constance's authenticated account endpoints with the unique
 `tundra-frontmatter-wrangler` app ID. A random per-install device ID is stored
 in the plugin's local settings and linked to the billing account; no signing
 secret or credential is embedded in the plugin.
+
+Before an AI request, Tundra reads the account's current free allowance and
+purchased balance. If billing cannot be verified or neither has an available
+use, it stops before sending note text to OpenRouter. The actual free-use claim
+or purchased-credit spend remains at apply time.
 
 ## Supported operations
 

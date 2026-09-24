@@ -534,6 +534,50 @@ async function retryPendingCreditSpends(plugin) {
     await plugin.saveSettings();
   }
 }
+async function checkUseAvailable(plugin) {
+  var _a2, _b2, _c2;
+  const state = plugin.settings.billing;
+  if (!state.billingAccessToken || !state.billingAccountLinked) {
+    new import_obsidian3.Notice("Tundra: sign in or create a billing account in plugin settings before using AI.", 5e3);
+    return false;
+  }
+  await retryPendingCreditSpends(plugin);
+  if (plugin.settings.billing.pendingCreditSpends.length > 0) {
+    new import_obsidian3.Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5e3);
+    return false;
+  }
+  try {
+    const query = new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId });
+    const response = await (0, import_obsidian3.requestUrl)({
+      url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${query.toString()}`,
+      method: "GET",
+      headers: { Authorization: `Bearer ${state.billingAccessToken}` },
+      throw: false
+    });
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      state.billingAccessToken = "";
+      state.billingAccountLinked = false;
+      await plugin.saveSettings();
+      new import_obsidian3.Notice("Tundra: your billing session expired. Sign in again before using AI.", 5e3);
+      return false;
+    }
+    if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
+    const entitlements = (_a2 = response.json) == null ? void 0 : _a2.data;
+    const freeRemaining = Math.max(0, Number((_b2 = entitlements == null ? void 0 : entitlements.free_usage) == null ? void 0 : _b2.remaining) || 0);
+    const paidBalance = Math.max(0, Number((_c2 = entitlements == null ? void 0 : entitlements.credits) == null ? void 0 : _c2.balance) || 0);
+    const today = localCalendarDate();
+    state.freeUsageDate = today;
+    state.freeUsesRemaining = Math.min(FREE_USES_PER_DAY, Math.floor(freeRemaining));
+    state.purchasedCredits = Math.floor(paidBalance);
+    await plugin.saveSettings();
+    if (freeRemaining > 0 || paidBalance > 0) return true;
+    new import_obsidian3.Notice("Tundra: today's free allowance is exhausted and no purchased credits remain.", 5e3);
+    return false;
+  } catch (e) {
+    new import_obsidian3.Notice("Tundra: billing could not be verified. No AI request was sent.", 5e3);
+    return false;
+  }
+}
 async function pollCheckoutSettlement(plugin, checkoutId) {
   var _a2;
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -1454,6 +1498,11 @@ var WranglerModal = class extends import_obsidian5.Modal {
       return;
     }
     this.plugin.support.info("operation.targets.selected", { operation: this.operation.kind, scope: this.targetScope, total: this.files.length });
+    if (this.operation.kind === "ai-frontmatter" && !await checkUseAvailable(this.plugin)) {
+      this.plugin.support.warn("billing.preflight.rejected", { operation: this.operation.kind, outcome: "unavailable" });
+      return;
+    }
+    if (this.operation.kind === "ai-frontmatter") this.plugin.support.info("billing.preflight.approved", { operation: this.operation.kind });
     await this.buildPlan();
     this.plugin.support.info("operation.plan.completed", {
       operation: this.operation.kind,
