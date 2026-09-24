@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Software Architecture
 
-Version: 3.6.8
+Version: 3.6.9
 
 ## Runtime boundaries
 
@@ -14,6 +14,7 @@ Tundra is an Obsidian plugin for local Markdown vaults. Deterministic selection,
 4. The selected operation builds a plan and applies eligible changes. Optional AI generation produces top-level-value proposals in that same flow.
 5. Before each write, the current note is compared with the plan snapshot. The exact original is added to the batch journal before the note is changed. Before/after review is optional and off by default.
 6. The summary and latest journal are persisted in local plugin data. Rollback compares current note text with the recorded batch output before restoring the original.
+7. `plugin-support.ts` keeps a bounded in-memory diagnostic trail and exposes a copy action. Event fields are allow-listed; note paths/content, credentials, and raw error messages are excluded.
 
 ## Module responsibilities
 

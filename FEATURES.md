@@ -1,16 +1,18 @@
 # Tundra Frontmatter Wrangler — Features
 
-Version: 3.6.7
+Version: 3.6.9
 
 Tundra helps Obsidian users make recoverable changes to top-level frontmatter across selected Markdown notes.
+
+- The Settings tab can copy a privacy-safe, in-memory diagnostic log for troubleshooting.
 
 ## Fast, reviewable workflow
 
 1. Open Tundra from the command palette, ribbon, note editor, File Explorer note/folder menu, or multi-selection menu. Editor/note/folder actions target their context directly.
 2. The open note is selected by default; searchable pickers select another note or folder, and the entire vault is an explicit option.
 3. Choose the operation in the same view. Optional path/body and property filters stay collapsed until needed.
-4. Preview and review proposed changes, then confirm once for the batch.
-5. Apply with progress, cancellation, stale-plan checks, and independent per-note error handling; inspect the summary or roll back the latest batch.
+4. By default, apply the configured operation directly. Enable **Review before applying** in Settings to inspect before/after changes and confirm the batch.
+5. Inspect the result summary or roll back the latest batch; every write uses stale-plan checks and independent per-note error handling.
 
 ## Supported operations
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.6.9 (2026-09-24)
+
+- Added a bounded in-memory diagnostic log for workflow, AI, billing authorization, apply, rollback, and runtime events. Settings can copy the log; sensitive details, note paths, and note contents are excluded.
+
 ## 3.6.8 (2026-09-24)
 
 - With review disabled, configured note, folder, and selection actions now apply directly without opening the wrangler or progress window. Enabling review keeps the before/after review flow.

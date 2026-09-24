@@ -730,14 +730,39 @@ function openCheckout(plugin, tier) {
 
 // plugin-support.ts
 var import_obsidian4 = require("obsidian");
+var SAFE_DETAIL_KEYS = /* @__PURE__ */ new Set([
+  "version",
+  "operation",
+  "scope",
+  "selectedCount",
+  "total",
+  "changed",
+  "skipped",
+  "failed",
+  "unchanged",
+  "reviewEnabled",
+  "fieldCount",
+  "noteChars",
+  "httpStatus",
+  "errorType",
+  "outcome",
+  "restored",
+  "authorizationSource",
+  "cancelled"
+]);
 function safeDetail(value) {
-  if (value instanceof Error) return value.stack || value.message;
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch (e) {
-    return String(value);
+  if (value instanceof Error) return JSON.stringify({ errorType: value.name || "Error" });
+  if (typeof value === "string") return /^[A-Za-z0-9 _=.,:-]{0,300}$/.test(value) ? value : "[text omitted]";
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const safe = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (!SAFE_DETAIL_KEYS.has(key)) continue;
+      if (typeof item === "string") safe[key] = /^[A-Za-z0-9 _=.,:-]{0,120}$/.test(item) ? item : "[omitted]";
+      else if (typeof item === "number" || typeof item === "boolean" || item === null) safe[key] = item;
+    }
+    return JSON.stringify(safe);
   }
+  return "[detail omitted]";
 }
 var DocumentationModal = class extends import_obsidian4.Modal {
   constructor(app, docs) {
@@ -770,10 +795,12 @@ var PluginSupport = class {
   start() {
     this.info("plugin.loaded", `version=${this.plugin.manifest.version}`);
     this.plugin.registerDomEvent(window, "error", (event) => {
-      this.error("runtime.error", event.error || event.message);
+      const error = event.error;
+      this.error("runtime.error", { errorType: error instanceof Error ? error.name : "ErrorEvent" });
     });
     this.plugin.registerDomEvent(window, "unhandledrejection", (event) => {
-      this.error("runtime.unhandled_rejection", event.reason);
+      const reason = event.reason;
+      this.error("runtime.unhandled_rejection", { errorType: reason instanceof Error ? reason.name : typeof reason });
     });
     this.plugin.addCommand({
       id: "open-documentation",
@@ -807,12 +834,13 @@ var PluginSupport = class {
     this.record("error", event, detail);
   }
   record(level, event, detail) {
+    var _a2;
     const entry = { at: (/* @__PURE__ */ new Date()).toISOString(), level, event };
     if (detail !== void 0) entry.detail = safeDetail(detail).slice(0, 4e3);
     this.entries.push(entry);
     if (this.entries.length > this.maxEntries) this.entries.splice(0, this.entries.length - this.maxEntries);
     const method = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
-    method.call(console, `[${this.docs.name}] ${event}`, detail != null ? detail : "");
+    method.call(console, `[${this.docs.name}] ${event}`, (_a2 = entry.detail) != null ? _a2 : "");
   }
   async copyDiagnostics() {
     const header = [
@@ -829,7 +857,7 @@ var PluginSupport = class {
       )).join("\n"));
       new import_obsidian4.Notice(`${this.docs.name}: debug log copied. Secrets and note contents are not included.`);
     } catch (error) {
-      this.error("diagnostics.copy_failed", error);
+      this.error("diagnostics.copy_failed", { errorType: error instanceof Error ? error.name : typeof error });
       new import_obsidian4.Notice(`${this.docs.name}: could not copy the debug log.`);
     }
   }
@@ -1017,6 +1045,7 @@ var TundraPlugin = class extends import_obsidian5.Plugin {
     this.settings.aiApiKey = typeof this.settings.aiApiKey === "string" ? this.settings.aiApiKey : "";
     this.settings.aiModel = typeof this.settings.aiModel === "string" && this.settings.aiModel.trim() ? this.settings.aiModel : DEFAULT_SETTINGS.aiModel;
     await this.saveSettings();
+    this.support.info("settings.loaded", { operation: this.settings.defaultOperation.kind, reviewEnabled: this.settings.reviewBeforeApply });
     void retryPendingCreditSpends(this);
     resumePendingCheckout(this);
     this.addCommand({ id: "open-wrangle", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
@@ -1075,6 +1104,9 @@ var TundraPlugin = class extends import_obsidian5.Plugin {
     if (files.length) menu.addItem((item) => item.setTitle(`Tundra: Update frontmatter for ${files.length} selected note${files.length === 1 ? "" : "s"}`).setIcon("wand-sparkles").onClick(() => this.applyConfigured({ files })));
   }
   applyConfigured(target) {
+    var _a2, _b2;
+    const scope = target.files ? "selection" : target.folder ? "folder" : "note";
+    this.support.info("operation.requested", { operation: this.settings.defaultOperation.kind, scope, selectedCount: (_b2 = (_a2 = target.files) == null ? void 0 : _a2.length) != null ? _b2 : target.file ? 1 : 0, reviewEnabled: this.settings.reviewBeforeApply });
     const modal = new WranglerModal(this.app, this, target, true);
     if (this.settings.reviewBeforeApply) modal.open();
     else void modal.runConfiguredDirectly();
@@ -1096,6 +1128,7 @@ var TundraSettingTab = class extends import_obsidian5.PluginSettingTab {
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
     new import_obsidian5.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
+    new import_obsidian5.Setting(containerEl).setName("Diagnostics").setDesc("A short in-memory log of workflow events and errors. It excludes note paths, note contents, and credentials.").addButton((button) => button.setButtonText("Copy debug log").onClick(() => void this.plugin.support.copyDiagnostics()));
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => {
       await syncBalance(this.plugin);
@@ -1397,9 +1430,11 @@ var WranglerModal = class extends import_obsidian5.Modal {
   }
   async preparePreview() {
     var _a2;
+    this.plugin.support.info("operation.plan.started", { operation: this.operation.kind, scope: this.targetScope, reviewEnabled: this.plugin.settings.reviewBeforeApply });
     if (this.operation.kind === "ai-frontmatter") {
       const fields = (_a2 = this.operation.aiFields) != null ? _a2 : [...AI_FIELD_TIERS[this.plugin.settings.aiTier]];
       if (!fields.length || fields.some((key) => !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key) || ["__proto__", "constructor", "prototype"].includes(key))) {
+        this.plugin.support.warn("operation.rejected", { operation: this.operation.kind, outcome: "invalid_fields" });
         new import_obsidian5.Notice("The configured AI property list is invalid.", 5e3);
         return;
       }
@@ -1414,10 +1449,20 @@ var WranglerModal = class extends import_obsidian5.Modal {
     }
     this.files = await this.selectFiles();
     if (!this.files.length) {
+      this.plugin.support.info("operation.plan.empty", { operation: this.operation.kind, scope: this.targetScope });
       new import_obsidian5.Notice("No Markdown notes match this target and its filters.", 5e3);
       return;
     }
+    this.plugin.support.info("operation.targets.selected", { operation: this.operation.kind, scope: this.targetScope, total: this.files.length });
     await this.buildPlan();
+    this.plugin.support.info("operation.plan.completed", {
+      operation: this.operation.kind,
+      total: this.plans.length,
+      changed: this.plans.filter((plan) => plan.status === "changed").length,
+      skipped: this.plans.filter((plan) => plan.status === "skipped").length,
+      failed: this.plans.filter((plan) => plan.status === "failed").length,
+      unchanged: this.plans.filter((plan) => plan.status === "unchanged").length
+    });
     this.reviewedAll = false;
     if (this.plugin.settings.reviewBeforeApply) {
       this.step = 1;
@@ -1432,7 +1477,7 @@ var WranglerModal = class extends import_obsidian5.Modal {
     if (this.opened) this.close();
   }
   async buildPlan() {
-    var _a2;
+    var _a2, _b2;
     const notes = [];
     for (const file of this.files) notes.push({ path: file.path, content: await this.app.vault.read(file) });
     if (this.operation.kind !== "ai-frontmatter") {
@@ -1448,9 +1493,13 @@ var WranglerModal = class extends import_obsidian5.Modal {
         continue;
       }
       if (!parsed.safe) continue;
+      const fieldCount = ((_a2 = this.operation.aiFields) != null ? _a2 : [...AI_FIELD_TIERS[this.plugin.settings.aiTier]]).length;
+      this.plugin.support.info("ai.request.started", { fieldCount, noteChars: parsed.body.length });
       try {
-        updates[note.path] = await requestAiFrontmatter(parsed.body, parsed.frontmatter, (_a2 = this.operation.aiFields) != null ? _a2 : [...AI_FIELD_TIERS[this.plugin.settings.aiTier]], this.plugin.settings);
+        updates[note.path] = await requestAiFrontmatter(parsed.body, parsed.frontmatter, (_b2 = this.operation.aiFields) != null ? _b2 : [...AI_FIELD_TIERS[this.plugin.settings.aiTier]], this.plugin.settings);
+        this.plugin.support.info("ai.request.completed", { outcome: "success" });
       } catch (error) {
+        this.plugin.support.warn("ai.request.failed", { errorType: error instanceof Error ? error.name : typeof error });
         errors[note.path] = error instanceof Error ? error.message : String(error);
       }
     }
@@ -1539,14 +1588,17 @@ var WranglerModal = class extends import_obsidian5.Modal {
       }
     }
     if (!hasCurrentChange) {
+      this.plugin.support.warn("apply.skipped", { outcome: "stale_or_no_changes" });
       new import_obsidian5.Notice("No planned changes are still applicable. No credit was used.", 5e3);
       return null;
     }
     const reservation = await reserveUse(this.plugin);
     if (!reservation) {
+      this.plugin.support.warn("apply.authorization_failed", { outcome: "unavailable" });
       new import_obsidian5.Notice("Tundra billing authorization failed. No notes were changed.", 5e3);
       return null;
     }
+    this.plugin.support.info("apply.authorized", { authorizationSource: reservation.source, total: this.plans.length });
     const batch = { id: crypto.randomUUID(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
     for (let i = 0; i < this.plans.length; i++) {
       if (isCancelled == null ? void 0 : isCancelled()) break;
@@ -1579,6 +1631,7 @@ var WranglerModal = class extends import_obsidian5.Modal {
     } else await reservation.rollback();
     this.plugin.settings.lastBatch = batch;
     await this.plugin.saveSettings();
+    this.plugin.support.info("apply.completed", { total: this.plans.length, changed: batch.summary.changed, skipped: batch.summary.skipped, failed: batch.summary.failed, unchanged: batch.summary.unchanged, cancelled: !!(isCancelled == null ? void 0 : isCancelled()) });
     return batch;
   }
   renderReview(parent) {
@@ -1633,9 +1686,11 @@ async function requestAiFrontmatter(body, existing, fields, settings) {
 async function rollback(app, plugin) {
   const batch = plugin.settings.lastBatch;
   if (!batch) {
+    plugin.support.warn("rollback.unavailable");
     new import_obsidian5.Notice("No recovery journal is available.");
     return;
   }
+  plugin.support.info("rollback.started", { total: batch.files.length });
   let restored = 0;
   let skipped = 0;
   for (const entry of batch.files) {
@@ -1656,6 +1711,7 @@ async function rollback(app, plugin) {
       skipped++;
     }
   }
+  plugin.support.info("rollback.completed", { total: batch.files.length, restored, skipped });
   new import_obsidian5.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
 }
 var LogModal = class extends import_obsidian5.Modal {

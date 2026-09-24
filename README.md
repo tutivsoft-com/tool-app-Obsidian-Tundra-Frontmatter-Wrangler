@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.6.8`
+Version: `3.6.9`
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Configured note, folder, and selection actions run directly without opening a progress window; before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
 
@@ -51,6 +51,10 @@ secret or credential is embedded in the plugin.
 - Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. The operation applies when launched and can be rolled back.
 
 The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step with four cumulative tiers: Bare Minimum (4 fields), Standard (9, default), Advanced (21), and Huge (50). Each tier includes `image`. The request sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter when you run the AI operation, with a 10,000-token response ceiling. When `tags` is selected, Tundra asks for up to 20 relevant, standard lowercase Obsidian tags, returns fewer when appropriate, normalizes and de-duplicates them, and omits an empty tag list. Suggested `image` values are accepted only when the image reference appears in the note or its existing properties. Tundra loads its own capped OpenRouter key automatically; a personal key, model, AI tier, and existing-value behavior can be set once in Settings. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
+
+## Diagnostics
+
+Tundra keeps the latest 250 diagnostic events in memory, including operation stages, counts, AI request outcomes, billing authorization outcomes, apply/rollback summaries, and runtime error types. Use **Settings → Tundra Frontmatter Wrangler → Copy debug log** when reporting an issue. The copied log omits note paths, note contents, API keys, tokens, and raw error messages. Logs reset when Tundra reloads.
 
 ## Safety model
 

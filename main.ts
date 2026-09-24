@@ -33,6 +33,7 @@ export default class TundraPlugin extends Plugin {
     this.settings.aiApiKey = typeof this.settings.aiApiKey === "string" ? this.settings.aiApiKey : "";
     this.settings.aiModel = typeof this.settings.aiModel === "string" && this.settings.aiModel.trim() ? this.settings.aiModel : DEFAULT_SETTINGS.aiModel;
     await this.saveSettings();
+    this.support.info("settings.loaded", { operation: this.settings.defaultOperation.kind, reviewEnabled: this.settings.reviewBeforeApply });
     void retryPendingCreditSpends(this);
     resumePendingCheckout(this);
     this.addCommand({ id: "open-wrangle", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
@@ -67,6 +68,8 @@ export default class TundraPlugin extends Plugin {
     if (files.length) menu.addItem(item => item.setTitle(`Tundra: Update frontmatter for ${files.length} selected note${files.length === 1 ? "" : "s"}`).setIcon("wand-sparkles").onClick(() => this.applyConfigured({ files })));
   }
   applyConfigured(target: { file?: TFile; folder?: TFolder; files?: TFile[] }) {
+    const scope = target.files ? "selection" : target.folder ? "folder" : "note";
+    this.support.info("operation.requested", { operation: this.settings.defaultOperation.kind, scope, selectedCount: target.files?.length ?? (target.file ? 1 : 0), reviewEnabled: this.settings.reviewBeforeApply });
     const modal = new WranglerModal(this.app, this, target, true);
     if (this.settings.reviewBeforeApply) modal.open();
     else void modal.runConfiguredDirectly();
@@ -82,6 +85,7 @@ class TundraSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
     new Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton(b => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
+    new Setting(containerEl).setName("Diagnostics").setDesc("A short in-memory log of workflow events and errors. It excludes note paths, note contents, and credentials.").addButton(button => button.setButtonText("Copy debug log").onClick(() => void this.plugin.support.copyDiagnostics()));
 
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => { await syncBalance(this.plugin); }, refresh: () => this.display() });
@@ -289,9 +293,11 @@ class WranglerModal extends Modal {
   }
 
   private async preparePreview() {
+    this.plugin.support.info("operation.plan.started", { operation: this.operation.kind, scope: this.targetScope, reviewEnabled: this.plugin.settings.reviewBeforeApply });
     if (this.operation.kind === "ai-frontmatter") {
       const fields = this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]];
       if (!fields.length || fields.some(key => !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key) || ["__proto__", "constructor", "prototype"].includes(key))) {
+        this.plugin.support.warn("operation.rejected", { operation: this.operation.kind, outcome: "invalid_fields" });
         new Notice("The configured AI property list is invalid.", 5000);
         return;
       }
@@ -299,8 +305,17 @@ class WranglerModal extends Modal {
     if (this.targetScope === "note" && !this.selectedFile) { new Notice("Choose a note or switch the target to a folder or the vault.", 5000); return; }
     if (this.targetScope === "folder" && !this.folder) { new Notice("Choose a folder first.", 5000); return; }
     this.files = await this.selectFiles();
-    if (!this.files.length) { new Notice("No Markdown notes match this target and its filters.", 5000); return; }
+    if (!this.files.length) { this.plugin.support.info("operation.plan.empty", { operation: this.operation.kind, scope: this.targetScope }); new Notice("No Markdown notes match this target and its filters.", 5000); return; }
+    this.plugin.support.info("operation.targets.selected", { operation: this.operation.kind, scope: this.targetScope, total: this.files.length });
     await this.buildPlan();
+    this.plugin.support.info("operation.plan.completed", {
+      operation: this.operation.kind,
+      total: this.plans.length,
+      changed: this.plans.filter(plan => plan.status === "changed").length,
+      skipped: this.plans.filter(plan => plan.status === "skipped").length,
+      failed: this.plans.filter(plan => plan.status === "failed").length,
+      unchanged: this.plans.filter(plan => plan.status === "unchanged").length,
+    });
     this.reviewedAll = false;
     if (this.plugin.settings.reviewBeforeApply) {
       this.step = 1;
@@ -325,8 +340,15 @@ class WranglerModal extends Modal {
       const parsed = parseFrontmatter(note.content);
       if (/^\uFEFF---\r?\n/.test(note.content)) { errors[note.path] = "A UTF-8 BOM before frontmatter is not supported safely."; continue; }
       if (!parsed.safe) continue;
-      try { updates[note.path] = await requestAiFrontmatter(parsed.body, parsed.frontmatter, this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]], this.plugin.settings); }
-      catch (error) { errors[note.path] = error instanceof Error ? error.message : String(error); }
+      const fieldCount = (this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]]).length;
+      this.plugin.support.info("ai.request.started", { fieldCount, noteChars: parsed.body.length });
+      try {
+        updates[note.path] = await requestAiFrontmatter(parsed.body, parsed.frontmatter, this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]], this.plugin.settings);
+        this.plugin.support.info("ai.request.completed", { outcome: "success" });
+      } catch (error) {
+        this.plugin.support.warn("ai.request.failed", { errorType: error instanceof Error ? error.name : typeof error });
+        errors[note.path] = error instanceof Error ? error.message : String(error);
+      }
     }
     this.plans = planOperation(notes, this.operation, updates, errors);
   }
@@ -390,9 +412,10 @@ class WranglerModal extends Modal {
       if (!(file instanceof TFile)) continue;
       try { if (await this.app.vault.read(file) === plan.before) { hasCurrentChange = true; break; } } catch { /* The apply loop reports unreadable notes. */ }
     }
-    if (!hasCurrentChange) { new Notice("No planned changes are still applicable. No credit was used.", 5000); return null; }
+    if (!hasCurrentChange) { this.plugin.support.warn("apply.skipped", { outcome: "stale_or_no_changes" }); new Notice("No planned changes are still applicable. No credit was used.", 5000); return null; }
     const reservation = await reserveUse(this.plugin);
-    if (!reservation) { new Notice("Tundra billing authorization failed. No notes were changed.", 5000); return null; }
+    if (!reservation) { this.plugin.support.warn("apply.authorization_failed", { outcome: "unavailable" }); new Notice("Tundra billing authorization failed. No notes were changed.", 5000); return null; }
+    this.plugin.support.info("apply.authorized", { authorizationSource: reservation.source, total: this.plans.length });
     const batch: Batch = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
     for (let i = 0; i < this.plans.length; i++) {
       if (isCancelled?.()) break;
@@ -414,6 +437,7 @@ class WranglerModal extends Modal {
     } else await reservation.rollback();
     this.plugin.settings.lastBatch = batch;
     await this.plugin.saveSettings();
+    this.plugin.support.info("apply.completed", { total: this.plans.length, changed: batch.summary.changed, skipped: batch.summary.skipped, failed: batch.summary.failed, unchanged: batch.summary.unchanged, cancelled: !!isCancelled?.() });
     return batch;
   }
 
@@ -456,5 +480,5 @@ async function requestAiFrontmatter(body: string, existing: Frontmatter, fields:
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("OpenRouter returned a value that is not a JSON object.");
   return sanitizeAiFrontmatter(decoded, fields, body, existing) as Frontmatter;
 }
-async function rollback(app: App, plugin: TundraPlugin) { const batch = plugin.settings.lastBatch; if (!batch) { new Notice("No recovery journal is available."); return; } let restored = 0; let skipped = 0; for (const entry of batch.files) { const file = app.vault.getAbstractFileByPath(entry.path); if (!(file instanceof TFile)) { skipped++; continue; } try { const current = await app.vault.read(file); if (entry.after !== undefined && current !== entry.after) { skipped++; continue; } await app.vault.modify(file, entry.original); restored++; } catch { skipped++; } } new Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`); }
+async function rollback(app: App, plugin: TundraPlugin) { const batch = plugin.settings.lastBatch; if (!batch) { plugin.support.warn("rollback.unavailable"); new Notice("No recovery journal is available."); return; } plugin.support.info("rollback.started", { total: batch.files.length }); let restored = 0; let skipped = 0; for (const entry of batch.files) { const file = app.vault.getAbstractFileByPath(entry.path); if (!(file instanceof TFile)) { skipped++; continue; } try { const current = await app.vault.read(file); if (entry.after !== undefined && current !== entry.after) { skipped++; continue; } await app.vault.modify(file, entry.original); restored++; } catch { skipped++; } } plugin.support.info("rollback.completed", { total: batch.files.length, restored, skipped }); new Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`); }
 class LogModal extends Modal { constructor(app: App, private batch: Batch) { super(app); } onOpen() { this.contentEl.createEl("h3", { text: "Tundra operation log" }); this.contentEl.createEl("pre", { text: JSON.stringify(this.batch, null, 2) }); } onClose() { this.contentEl.empty(); } }
