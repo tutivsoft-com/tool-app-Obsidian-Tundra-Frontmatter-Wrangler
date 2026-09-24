@@ -4,14 +4,14 @@ Version: 3.5.3
 
 ## Runtime boundaries
 
-Tundra is an Obsidian plugin for local Markdown vaults. Deterministic selection, parsing, operation planning, preview, apply, journaling, and rollback run in the plugin. Optional OpenRouter requests are made only after the user chooses AI generation and confirms the data scope. Billing requests are independent of note content.
+Tundra is an Obsidian plugin for local Markdown vaults. Deterministic selection, parsing, operation planning, preview, apply, journaling, and rollback run in the plugin. Optional OpenRouter requests are made when the user runs AI generation. Billing requests are independent of note content.
 
 ## Runtime flow
 
 1. `main.ts` registers the command, ribbon action, settings, wizard, operation state, and plugin-data persistence.
 2. Selection reads candidate notes from the active vault and applies folder, subfolder, property, and text/path filters.
 3. `core.ts` parses only the supported frontmatter shape and builds deterministic plans for the selected operation. Unsafe inputs and malformed YAML become explicit skipped results.
-4. Preview presents each proposed change and requires review before apply. Optional AI generation produces top-level-value proposals that enter this same plan/preview flow.
+4. The selected operation builds a plan and applies eligible changes. Optional AI generation produces top-level-value proposals in that same flow.
 5. Before each write, the current note is compared with the preview snapshot. The exact original is added to the batch journal before the note is changed.
 6. The summary and latest journal are persisted in local plugin data. Rollback compares current note text with the recorded batch output before restoring the original.
 
@@ -26,7 +26,7 @@ Tundra is an Obsidian plugin for local Markdown vaults. Deterministic selection,
 
 ## Persistence and network data
 
-Settings, user-supplied OpenRouter configuration, recent operation summaries, and the latest recovery journal live in Obsidian plugin data. Tundra keeps a local purchased-credit mirror and install identity for billing reconciliation. OpenRouter receives only the confirmed note body excerpt and current top-level properties; the billing service receives account, installation, checkout, and usage data, not the note contents.
+Settings, optional personal OpenRouter override, recent operation summaries, and the latest recovery journal live in Obsidian plugin data. Tundra keeps a local purchased-credit mirror and install identity for billing reconciliation. OpenRouter receives only the note body excerpt and current top-level properties when the user runs AI generation; the billing service receives account, installation, checkout, and usage data, not the note contents.
 
 ## Build and release shape
 
