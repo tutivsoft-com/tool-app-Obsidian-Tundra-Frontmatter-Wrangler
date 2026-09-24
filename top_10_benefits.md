@@ -12,3 +12,9 @@
 10. **Keep routine work local** — Deterministic planning and writes run in Obsidian. Three non-empty apply batches are free each local calendar day; preview, no-op apply, and rollback are free.
 
 AI requests run only when the user selects an AI operation; a personal key override may incur OpenRouter charges. Tundra edits top-level properties only; it is not a general YAML or nested-schema editor.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->

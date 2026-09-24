@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Software Architecture
 
-Version: 3.6.4
+Version: 3.6.7
 
 ## Runtime boundaries
 
@@ -36,3 +36,9 @@ The root TypeScript files are the source of truth. `npm run build` type-checks a
 ## Quality checks
 
 The existing automated tests cover deterministic parsing, transformations, operation planning, billing policy, AI tier contents, tag normalization, output limits, and sanitizing mock AI proposals against a real repository Markdown note. AI uses a 10,000-token response ceiling; tag suggestions are limited to 20. Release checks are `npm run build`, `npm test`, `node --check publish/main.js`, version/manifest parity inspection, and `git diff --check`.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->

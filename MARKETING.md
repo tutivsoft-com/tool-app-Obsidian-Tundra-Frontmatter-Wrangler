@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Marketing
 
-Version: 3.6.0
+Version: 3.6.7
 
 ## Product positioning
 
@@ -36,3 +36,9 @@ Tundra works on top-level properties; it does not promise a general YAML editor 
 - `assets/Tundra Frontmatter Wrangler.mp4` — existing product demonstration.
 
 These assets are retained as supplied. Tundra is distributed as an Obsidian Community plugin; Microsoft Store and Google Play listing artwork is not applicable.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->

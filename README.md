@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.6.5`
+Version: `3.6.7`
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Open the wrangler from a note, choose an operation, review the preview, and apply it. Tundra keeps a rollback journal.
 
@@ -79,3 +79,9 @@ MIT. See [LICENSE](LICENSE).
 ## OpenRouter key
 
 AI requests use this repository's own $2 no-reset OpenRouter key from an encrypted remote manifest. A personal key in plugin settings takes priority. The manifest format follows Antero's AES-256-GCM/PBKDF2 loader; the bundled passphrase only obscures the key and cannot prevent extraction from a client.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->

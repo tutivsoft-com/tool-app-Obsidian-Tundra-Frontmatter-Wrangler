@@ -115,3 +115,9 @@ AI generates proposals for the selected operation and applies eligible changes i
 - Deterministic planning works offline. AI generation uses the built-in OpenRouter key when the user runs it; paid apply authorization uses optional network access after the daily free allowance.
 - Billing never runs during rollback and does not charge a no-op apply.
 - A paid apply batch is charged at most once, during the user-initiated run.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->

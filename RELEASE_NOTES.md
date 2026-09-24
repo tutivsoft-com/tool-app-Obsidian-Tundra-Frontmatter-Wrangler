@@ -68,3 +68,9 @@ This release finalizes billing for reviewed write batches. Each local calendar d
 Preview, no-op, and rollback operations do not consume credits.
 
 The 3.3.0 MVP remains intact: reviewed note selection, property inventory, deterministic key/tag/schema operations, diffs, dry-run counts, cancellation, per-note error isolation, undo journals, rollback, and a local operation log.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->

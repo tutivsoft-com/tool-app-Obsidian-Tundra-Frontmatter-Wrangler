@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.6.7 (2026-09-24)
+
+- Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+
+
 ## 3.6.6
 
 - Added saved operation defaults and direct current-note/folder commands with optional before/after review.

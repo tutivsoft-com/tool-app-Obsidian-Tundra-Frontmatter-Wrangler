@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Features
 
-Version: 3.6.5
+Version: 3.6.7
 
 Tundra helps Obsidian users make recoverable changes to top-level frontmatter across selected Markdown notes.
 
@@ -42,3 +42,9 @@ Tundra helps Obsidian users make recoverable changes to top-level frontmatter ac
 ## Scope and limits
 
 Tundra edits top-level properties only. Nested schema transforms, scheduled changes, and background AI writes are outside the current product scope. YAML comments and nested constructs that the parser cannot safely retain are skipped rather than silently rewritten.
+
+<!-- one-click-workflow:start -->
+## Workflow defaults (v3.6.7)
+
+Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+<!-- one-click-workflow:end -->
