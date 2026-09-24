@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.6.12 (2026-09-25)
+
+- Synchronized the release version across release metadata and current product documentation; plugin behavior is unchanged.
+
 ## 3.6.10 (2026-09-24)
 
 - Verify account entitlement before sending a billable AI frontmatter request; no AI request is sent when billing cannot be verified or has no eligible allowance.

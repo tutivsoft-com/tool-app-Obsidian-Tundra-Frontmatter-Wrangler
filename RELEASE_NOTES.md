@@ -1,5 +1,10 @@
 # Tundra Frontmatter Wrangler release notes
 
+## 3.6.12 - 2026-09-25
+
+- Updated release metadata and current documentation version references. Plugin behavior is unchanged.
+
+
 ## 3.6.5 - 2026-09-24
 
 Added direct context-menu entry points for notes, folders, and File Explorer multi-selections, plus command-palette actions for the current note and folder. Right-clicking inside an editor opens Tundra for that note.
