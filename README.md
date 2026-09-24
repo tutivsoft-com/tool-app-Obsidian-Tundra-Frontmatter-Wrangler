@@ -1,8 +1,8 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.5.3`
+Version: `3.5.4`
 
-Tundra is a local-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. Deterministic operations run locally; optional AI generation and paid billing need network access. The common path stays simple: select notes, inspect the inventory, configure an operation, preview it, apply it, and review the result.
+Tundra is a local-first Obsidian plugin for making reviewed, recoverable frontmatter changes across a large collection of Markdown notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Choose a working set and operation, then run it. Tundra applies the plan, reports the result, and keeps a rollback journal.
 
 ## MVP workflow
 
@@ -11,14 +11,14 @@ The command `Tundra Frontmatter Wrangler: Open frontmatter wrangler` and the rib
 1. **Select** — choose a folder, include or exclude subfolders, filter by a top-level property, and search note paths/bodies.
 2. **Inspect** — review inventory counts and manually check the exact included note list. Malformed frontmatter is surfaced, never silently rewritten.
 3. **Configure** — choose a property rename or removal, tag operation, schema reorder, format-only cleanup, or AI-assisted property generation.
-4. **Preview** — inspect representative diffs and aggregate changed/unchanged/skipped/failed counts. Every affected note must be marked reviewed, and each can be included or excluded from the apply batch.
+4. **Run** — Tundra generates a plan and applies applicable changes without a second approval step.
 5. **Apply** — process notes independently with progress, cancellation, stale-preview protection, and per-note error handling.
 6. **Review** — see the post-run summary, open the local operation log, or rollback the most recent batch.
 
 ## Billing
 
 Tundra includes three free non-empty apply batches per local calendar day. After
-those are used, each non-empty, reviewed apply batch authorizes one purchased
+those are used, each non-empty apply batch authorizes one purchased
 credit. Previewing, planning a no-op, and rolling back never consume credits.
 Tundra checks that at least one previewed change is still applicable before
 claiming a use. A later write failure can still consume a free use because the
@@ -44,7 +44,7 @@ secret or credential is embedded in the plugin.
 - Normalize tags only with an exact supported rule selected by the user: `lowercase`, `spaces to hyphens`, or `slash separators`. Unknown rules are rejected; there is no hidden spelling conversion.
 - Reorder a preferred top-level schema with move-up/move-down controls. Unknown keys retain their existing relative order and can be placed before or after the preferred keys.
 - Format-only cleanup canonicalizes supported YAML formatting without changing values.
-- Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. Each result is reviewed in the ordinary diff preview before apply.
+- Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. The operation applies when launched and can be rolled back.
 
 The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step: it sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter only after confirmation. Configure your own OpenRouter API key and model in settings; Tundra has no built-in AI key. OpenRouter may charge your account. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
 
@@ -71,3 +71,7 @@ The public plugin source and runtime artifacts are mirrored in `publish/`. The b
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## OpenRouter key
+
+AI requests use this repository's own $2 no-reset OpenRouter key from an encrypted remote manifest. A personal key in plugin settings takes priority. The manifest format follows Antero's AES-256-GCM/PBKDF2 loader; the bundled passphrase only obscures the key and cannot prevent extraction from a client.

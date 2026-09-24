@@ -1,7 +1,7 @@
 {
   "id": "tundra-frontmatter-wrangler",
   "name": "Tundra Frontmatter Wrangler",
-  "version": "3.5.3",
+  "version": "3.5.4",
   "minAppVersion": "1.5.0",
   "description": "Safely preview, apply, and roll back bulk frontmatter changes with optional AI proposals.",
   "author": "Rahul",

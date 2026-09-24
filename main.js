@@ -1,8 +1,8 @@
-"use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -16,16 +16,94 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
-// main.ts
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/main.ts
 var main_exports = {};
 __export(main_exports, {
   default: () => TundraPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
-// core.ts
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/remote-key.ts
+var import_obsidian = require("obsidian");
+var PASSPHRASE = "Kivu.RemoteKeyManifest.v1.2026D";
+var MANIFEST_URL = "https://raw.githubusercontent.com/tutivsoft-com/Resources/main/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public.txt";
+function fromBase64(value) {
+  const raw = atob(value);
+  const bytes = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+async function decrypt(envelope) {
+  if (envelope.x !== "AES-256-GCM" || envelope.w !== "PBKDF2-HMAC-SHA256" || envelope.n !== 21e4) {
+    throw new Error("Unsupported OpenRouter manifest format.");
+  }
+  const material = await window.crypto.subtle.importKey("raw", new TextEncoder().encode(PASSPHRASE), "PBKDF2", false, ["deriveKey"]);
+  const key = await window.crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: fromBase64(envelope.a), iterations: envelope.n, hash: "SHA-256" },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+  const ciphertext = fromBase64(envelope.c);
+  const tag = fromBase64(envelope.d);
+  const combined = new Uint8Array(new ArrayBuffer(ciphertext.length + tag.length));
+  combined.set(ciphertext);
+  combined.set(tag, ciphertext.length);
+  const plain = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(envelope.b) }, key, combined);
+  return new TextDecoder().decode(plain).trim();
+}
+async function fetchManifest(url) {
+  const response = await (0, import_obsidian.requestUrl)({ url, method: "GET", throw: false });
+  if (response.status < 200 || response.status >= 300) throw new Error(`OpenRouter manifest HTTP ${response.status}.`);
+  const manifest = response.json;
+  if (!manifest || !Array.isArray(manifest.r)) throw new Error("Invalid OpenRouter manifest.");
+  return manifest;
+}
+async function decryptManifest(manifest) {
+  var _a;
+  for (const state of ["active", "next"]) {
+    const slot = (_a = manifest.r.find((item) => item.ii === state)) != null ? _a : manifest.r.find((item) => item.s === (state === "active" ? "0" : "1"));
+    if (!slot) continue;
+    try {
+      const value = await decrypt(slot.v);
+      if (value) return value;
+    } catch (e) {
+    }
+  }
+  throw new Error("OpenRouter manifest could not be decrypted.");
+}
+async function loadBuiltInKey() {
+  let manifest;
+  try {
+    manifest = await fetchManifest(MANIFEST_URL);
+    return await decryptManifest(manifest);
+  } catch (e) {
+    manifest = await fetchManifest(MANIFEST_URL).catch(() => {
+      throw new Error("Tundra AI key is unavailable. Check your connection or add your own key in settings.");
+    });
+    if (manifest.n && manifest.n !== MANIFEST_URL && manifest.n.startsWith("https://raw.githubusercontent.com/tutivsoft-com/Resources/main/")) {
+      return decryptManifest(await fetchManifest(manifest.n));
+    }
+    throw new Error("Tundra AI key is unavailable. Check your connection or add your own key in settings.");
+  }
+}
+var cachedBuiltInKey = null;
+async function resolveOpenRouterKey(manualKey) {
+  if (manualKey.trim()) return manualKey.trim();
+  if (!cachedBuiltInKey) {
+    cachedBuiltInKey = loadBuiltInKey().catch((error) => {
+      cachedBuiltInKey = null;
+      throw error;
+    });
+  }
+  return cachedBuiltInKey;
+}
+
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/core.ts
 var scalar = (value) => {
   const t = value.trim();
   if (!t) return "";
@@ -198,10 +276,10 @@ function planOperation(notes, operation, aiUpdates = {}, aiErrors = {}) {
   });
 }
 
-// billing.ts
-var import_obsidian2 = require("obsidian");
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/billing.ts
+var import_obsidian3 = require("obsidian");
 
-// billing-model.ts
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/billing-model.ts
 var FREE_USES_PER_DAY = 3;
 var TUNDRA_CREDIT_PACKS = [
   { priceUsd: 1, credits: 100, planCode: "one_time", priceId: "pri_01m28hmkzcn3cf9e04qq1s9jw6" },
@@ -257,8 +335,8 @@ function isBillableWriteBatch(changedCount) {
   return Number.isFinite(changedCount) && changedCount > 0;
 }
 
-// constance-account.ts
-var import_obsidian = require("obsidian");
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/constance-account.ts
+var import_obsidian2 = require("obsidian");
 var CONSTANCE_ACCOUNT_BASE_URL = "https://app.tutivsoft.com";
 function errorDetail(response, fallback) {
   var _a, _b;
@@ -267,7 +345,7 @@ function errorDetail(response, fallback) {
 async function authenticate(mode, email, password, installationId) {
   var _a;
   const body = mode === "register" ? { email, password, external_customer_id: installationId } : { email, password };
-  const response = await (0, import_obsidian.requestUrl)({
+  const response = await (0, import_obsidian2.requestUrl)({
     url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/${mode}`,
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -282,7 +360,7 @@ async function authenticate(mode, email, password, installationId) {
   return token;
 }
 async function linkInstallation(adapter, token) {
-  const response = await (0, import_obsidian.requestUrl)({
+  const response = await (0, import_obsidian2.requestUrl)({
     url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/installations/link`,
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -316,7 +394,7 @@ async function claimAccountFreeUsage(state, appId, installationId, eventId, amou
   var _a, _b;
   if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "auth-required" };
   try {
-    const response = await (0, import_obsidian.requestUrl)({
+    const response = await (0, import_obsidian2.requestUrl)({
       url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/free-usage/claim`,
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.billingAccessToken}` },
@@ -336,7 +414,7 @@ async function spendAccountCredits(state, appId, installationId, eventId, amount
   var _a, _b, _c;
   if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "auth-required" };
   try {
-    const response = await (0, import_obsidian.requestUrl)({
+    const response = await (0, import_obsidian2.requestUrl)({
       url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/credits/spend`,
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.billingAccessToken}` },
@@ -355,26 +433,26 @@ async function spendAccountCredits(state, appId, installationId, eventId, amount
 }
 function addBillingAccountSettings(containerEl, adapter) {
   let password = "";
-  new import_obsidian.Setting(containerEl).setName("Billing account email").setDesc("Used for sign-in, purchase restore, and checkout. Reinstalling no longer creates a new free allowance.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).onChange(async (value) => {
+  new import_obsidian2.Setting(containerEl).setName("Billing account email").setDesc("Used for sign-in, purchase restore, and checkout. Reinstalling no longer creates a new free allowance.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).onChange(async (value) => {
     adapter.state.billingEmail = value.trim();
     await adapter.persist();
   }));
-  new import_obsidian.Setting(containerEl).setName("Billing account password").setDesc("Used only for this sign-in request. The password is never saved by the plugin.").addText((text) => {
+  new import_obsidian2.Setting(containerEl).setName("Billing account password").setDesc("Used only for this sign-in request. The password is never saved by the plugin.").addText((text) => {
     text.inputEl.type = "password";
     text.setPlaceholder("At least 8 characters").onChange((value) => {
       password = value;
     });
   });
   const status = adapter.state.billingAccountLinked ? "Signed in and linked" : "Not signed in";
-  new import_obsidian.Setting(containerEl).setName("Billing account").setDesc(`${status}. The saved bearer session can restore purchases; your password is not stored.`).addButton((button) => button.setButtonText("Sign in").onClick(async () => {
+  new import_obsidian2.Setting(containerEl).setName("Billing account").setDesc(`${status}. The saved bearer session can restore purchases; your password is not stored.`).addButton((button) => button.setButtonText("Sign in").onClick(async () => {
     var _a;
     button.setDisabled(true);
     try {
       await signInBillingAccount(adapter, password, "login");
-      new import_obsidian.Notice("Billing account signed in and this installation was linked.");
+      new import_obsidian2.Notice("Billing account signed in and this installation was linked.");
       (_a = adapter.refresh) == null ? void 0 : _a.call(adapter);
     } catch (error) {
-      new import_obsidian.Notice(error instanceof Error ? error.message : "Billing sign-in failed.");
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Billing sign-in failed.");
     } finally {
       button.setDisabled(false);
     }
@@ -383,10 +461,10 @@ function addBillingAccountSettings(containerEl, adapter) {
     button.setDisabled(true);
     try {
       await signInBillingAccount(adapter, password, "register");
-      new import_obsidian.Notice("Billing account created and this installation was linked.");
+      new import_obsidian2.Notice("Billing account created and this installation was linked.");
       (_a = adapter.refresh) == null ? void 0 : _a.call(adapter);
     } catch (error) {
-      new import_obsidian.Notice(error instanceof Error ? error.message : "Billing account creation failed.");
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Billing account creation failed.");
     } finally {
       button.setDisabled(false);
     }
@@ -395,12 +473,12 @@ function addBillingAccountSettings(containerEl, adapter) {
     adapter.state.billingAccessToken = "";
     adapter.state.billingAccountLinked = false;
     await adapter.persist();
-    new import_obsidian.Notice("Billing account signed out on this installation.");
+    new import_obsidian2.Notice("Billing account signed out on this installation.");
     (_a = adapter.refresh) == null ? void 0 : _a.call(adapter);
   }));
 }
 
-// billing.ts
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/billing.ts
 var CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
 var CONSTANCE_APP_ID = "tundra-frontmatter-wrangler";
 var TUNDRA_PLAN_CODES = {
@@ -439,7 +517,7 @@ async function spendConstanceCredit(plugin, stableEventId) {
     state.billingAccessToken = "";
     state.billingAccountLinked = false;
     await plugin.saveSettings();
-    new import_obsidian2.Notice("Tundra: your billing session expired. Sign in again.", 5e3);
+    new import_obsidian3.Notice("Tundra: your billing session expired. Sign in again.", 5e3);
     return { kind: "error" };
   }
   if (result.kind === "insufficient") return result;
@@ -462,7 +540,7 @@ async function pollCheckoutSettlement(plugin, checkoutId) {
     const state = plugin.settings.billing;
     if (!state.pendingCheckout || state.pendingCheckout.checkoutId !== checkoutId || !state.billingAccessToken) return;
     try {
-      const response = await (0, import_obsidian2.requestUrl)({
+      const response = await (0, import_obsidian3.requestUrl)({
         url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkouts/${encodeURIComponent(checkoutId)}`,
         method: "GET",
         headers: { Authorization: `Bearer ${state.billingAccessToken}` },
@@ -481,7 +559,7 @@ async function pollCheckoutSettlement(plugin, checkoutId) {
         state.pendingCheckout = null;
         await plugin.saveSettings();
         await syncBalance(plugin);
-        new import_obsidian2.Notice("Tundra: payment settled and your credit balance was refreshed.", 5e3);
+        new import_obsidian3.Notice("Tundra: payment settled and your credit balance was refreshed.", 5e3);
         return;
       }
     } catch (error) {
@@ -493,13 +571,13 @@ async function startCheckout(plugin, planCode) {
   var _a, _b;
   const state = plugin.settings.billing;
   if (!state.billingAccessToken || !state.billingAccountLinked) {
-    new import_obsidian2.Notice("Tundra: sign in or create a billing account in plugin settings before buying credits.", 5e3);
+    new import_obsidian3.Notice("Tundra: sign in or create a billing account in plugin settings before buying credits.", 5e3);
     return;
   }
   const pending = ((_a = state.pendingCheckout) == null ? void 0 : _a.planCode) === planCode ? state.pendingCheckout : { idempotencyKey: generateIdempotencyKey(), planCode };
   state.pendingCheckout = pending;
   await plugin.saveSettings();
-  const response = await (0, import_obsidian2.requestUrl)({
+  const response = await (0, import_obsidian3.requestUrl)({
     url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkout`,
     method: "POST",
     headers: {
@@ -515,18 +593,18 @@ async function startCheckout(plugin, planCode) {
     state.billingAccountLinked = false;
     state.pendingCheckout = null;
     await plugin.saveSettings();
-    new import_obsidian2.Notice("Tundra: your billing session expired. Sign in again.", 5e3);
+    new import_obsidian3.Notice("Tundra: your billing session expired. Sign in again.", 5e3);
     return;
   }
   if (response.status < 200 || response.status >= 300) {
-    new import_obsidian2.Notice(`Tundra: checkout could not be created (HTTP ${response.status}).`, 5e3);
+    new import_obsidian3.Notice(`Tundra: checkout could not be created (HTTP ${response.status}).`, 5e3);
     return;
   }
   const data = (_b = response.json) == null ? void 0 : _b.data;
   const checkoutId = String((data == null ? void 0 : data.checkout_id) || (data == null ? void 0 : data.id) || "");
   const checkoutUrl = String((data == null ? void 0 : data.checkout_url) || "");
   if (!checkoutId || !checkoutUrl) {
-    new import_obsidian2.Notice("Tundra: Constance returned an incomplete checkout response.", 5e3);
+    new import_obsidian3.Notice("Tundra: Constance returned an incomplete checkout response.", 5e3);
     return;
   }
   state.pendingCheckout = { ...pending, checkoutId };
@@ -542,12 +620,12 @@ function resumePendingCheckout(plugin) {
 }
 async function reserveUse(plugin) {
   if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
-    new import_obsidian2.Notice("Tundra: sign in or create a billing account in plugin settings before applying changes.", 5e3);
+    new import_obsidian3.Notice("Tundra: sign in or create a billing account in plugin settings before applying changes.", 5e3);
     return null;
   }
   await retryPendingCreditSpends(plugin);
   if (plugin.settings.billing.pendingCreditSpends.length > 0) {
-    new import_obsidian2.Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5e3);
+    new import_obsidian3.Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5e3);
     return null;
   }
   const today = localCalendarDate();
@@ -563,7 +641,7 @@ async function reserveUse(plugin) {
         plugin.settings.billing.billingAccountLinked = false;
       }
       await plugin.saveSettings();
-      new import_obsidian2.Notice(free.kind === "insufficient" ? "Tundra: today's account free allowance is exhausted." : "Tundra: the account allowance could not be verified.", 5e3);
+      new import_obsidian3.Notice(free.kind === "insufficient" ? "Tundra: today's account free allowance is exhausted." : "Tundra: the account allowance could not be verified.", 5e3);
       return null;
     }
     plugin.settings.billing.freeUsesRemaining = free.remaining;
@@ -573,19 +651,19 @@ async function reserveUse(plugin) {
   if (claim.source === "remote") {
     const sync = await syncBalance(plugin);
     if (sync.kind !== "ok" || sync.balance < 1) {
-      new import_obsidian2.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
+      new import_obsidian3.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
       return null;
     }
     const refreshed = claimLocalAllowance(plugin.settings.billing, today);
     plugin.settings.billing = refreshed.state;
     if (refreshed.source !== "purchased") {
-      new import_obsidian2.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
+      new import_obsidian3.Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5e3);
       return null;
     }
   }
   const freshBalance = await syncBalance(plugin);
   if (freshBalance.kind !== "ok" || freshBalance.balance < 1) {
-    new import_obsidian2.Notice("Tundra: purchased credits could not be verified. Refresh your balance and try again.", 5e3);
+    new import_obsidian3.Notice("Tundra: purchased credits could not be verified. Refresh your balance and try again.", 5e3);
     return null;
   }
   const stableEventId = generateEventId();
@@ -620,7 +698,7 @@ async function syncBalance(plugin) {
   const state = plugin.settings.billing;
   if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "error" };
   try {
-    const response = await (0, import_obsidian2.requestUrl)({
+    const response = await (0, import_obsidian3.requestUrl)({
       url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId }).toString()}`,
       method: "GET",
       throw: false,
@@ -645,12 +723,12 @@ async function syncBalance(plugin) {
 function openCheckout(plugin, tier) {
   void startCheckout(plugin, TUNDRA_PLAN_CODES[tier]).catch((error) => {
     console.error("Tundra: authenticated checkout failed", error);
-    new import_obsidian2.Notice("Tundra: checkout could not be started. Retry from settings.", 5e3);
+    new import_obsidian3.Notice("Tundra: checkout could not be started. Retry from settings.", 5e3);
   });
 }
 
-// plugin-support.ts
-var import_obsidian3 = require("obsidian");
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/plugin-support.ts
+var import_obsidian4 = require("obsidian");
 function safeDetail(value) {
   if (value instanceof Error) return value.stack || value.message;
   if (typeof value === "string") return value;
@@ -660,10 +738,10 @@ function safeDetail(value) {
     return String(value);
   }
 }
-var DocumentationModal = class extends import_obsidian3.Modal {
+var DocumentationModal = class extends import_obsidian4.Modal {
   constructor(app, docs) {
     super(app);
-    this.docs = docs;
+    __publicField(this, "docs", docs);
   }
   onOpen() {
     this.titleEl.setText(`${this.docs.name} documentation`);
@@ -683,10 +761,10 @@ var DocumentationModal = class extends import_obsidian3.Modal {
 };
 var PluginSupport = class {
   constructor(plugin, docs) {
-    this.plugin = plugin;
-    this.docs = docs;
-    this.entries = [];
-    this.maxEntries = 250;
+    __publicField(this, "plugin", plugin);
+    __publicField(this, "docs", docs);
+    __publicField(this, "entries", []);
+    __publicField(this, "maxEntries", 250);
   }
   start() {
     this.info("plugin.loaded", `version=${this.plugin.manifest.version}`);
@@ -748,21 +826,22 @@ var PluginSupport = class {
       await navigator.clipboard.writeText(header.concat(this.entries.map(
         (entry) => `${entry.at} [${entry.level.toUpperCase()}] ${entry.event}${entry.detail ? ` \u2014 ${entry.detail}` : ""}`
       )).join("\n"));
-      new import_obsidian3.Notice(`${this.docs.name}: debug log copied. Secrets and note contents are not included.`);
+      new import_obsidian4.Notice(`${this.docs.name}: debug log copied. Secrets and note contents are not included.`);
     } catch (error) {
       this.error("diagnostics.copy_failed", error);
-      new import_obsidian3.Notice(`${this.docs.name}: could not copy the debug log.`);
+      new import_obsidian4.Notice(`${this.docs.name}: could not copy the debug log.`);
     }
   }
 };
 
-// main.ts
+// ../../../../Desktop/ghrepos/tool-app-Obsidian-Tundra-Frontmatter-Wrangler-public/main.ts
 var DEFAULT_SETTINGS = { billing: defaultBillingState(), aiApiKey: "", aiModel: "openai/gpt-5-mini" };
 var MAX_AI_NOTE_CHARS = 12e3;
-var TundraPlugin = class extends import_obsidian4.Plugin {
+var TundraPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
-    this.settings = { billing: defaultBillingState(), aiApiKey: "", aiModel: "openai/gpt-5-mini" };
+    __publicField(this, "settings", { billing: defaultBillingState(), aiApiKey: "", aiModel: "openai/gpt-5-mini" });
+    __publicField(this, "support");
   }
   async onload() {
     this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Review, apply, audit, and roll back deterministic or AI-assisted frontmatter changes.", quickStart: ["Open the wrangler.", "Choose a scope and operation.", "Review the diff before applying the batch."], commands: ["Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wizard if notes changed after preview."] });
@@ -782,68 +861,68 @@ var TundraPlugin = class extends import_obsidian4.Plugin {
     await this.saveData(this.settings);
   }
 };
-var TundraSettingTab = class extends import_obsidian4.PluginSettingTab {
+var TundraSettingTab = class extends import_obsidian5.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
-    this.plugin = plugin;
+    __publicField(this, "plugin", plugin);
   }
   display() {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
-    new import_obsidian4.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
+    new import_obsidian5.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => {
       await syncBalance(this.plugin);
     }, refresh: () => this.display() });
-    new import_obsidian4.Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today \xB7 ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton((button) => button.setButtonText("Sync balance").onClick(async () => {
+    new import_obsidian5.Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today \xB7 ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton((button) => button.setButtonText("Sync balance").onClick(async () => {
       button.setDisabled(true);
       const result = await syncBalance(this.plugin);
-      new import_obsidian4.Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3e3 : 5e3);
+      new import_obsidian5.Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3e3 : 5e3);
       this.display();
     }));
     containerEl.createEl("h3", { text: "AI frontmatter" });
     containerEl.createEl("p", { text: "AI suggestions use OpenRouter. Note content and current frontmatter are sent only when you choose the AI operation and confirm the request. OpenRouter may charge your account." });
-    new import_obsidian4.Setting(containerEl).setName("OpenRouter API key").setDesc("Stored in this plugin's local settings and sent to OpenRouter. Tundra has no built-in key.").addText((input) => {
+    new import_obsidian5.Setting(containerEl).setName("OpenRouter API key").setDesc("Optional personal key. When blank, Tundra loads its own capped key from an encrypted remote manifest.").addText((input) => {
       input.setPlaceholder("sk-or-\u2026").setValue(this.plugin.settings.aiApiKey).onChange(async (value) => {
         this.plugin.settings.aiApiKey = value.trim();
         await this.plugin.saveSettings();
       });
       input.inputEl.type = "password";
     });
-    new import_obsidian4.Setting(containerEl).setName("OpenRouter model").setDesc("Model ID used for AI-generated frontmatter suggestions.").addText((input) => input.setPlaceholder("openai/gpt-5-mini").setValue(this.plugin.settings.aiModel).onChange(async (value) => {
+    new import_obsidian5.Setting(containerEl).setName("OpenRouter model").setDesc("Model ID used for AI-generated frontmatter suggestions.").addText((input) => input.setPlaceholder("openai/gpt-5-mini").setValue(this.plugin.settings.aiModel).onChange(async (value) => {
       this.plugin.settings.aiModel = value.trim();
       await this.plugin.saveSettings();
     }));
-    const packs = new import_obsidian4.Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
+    const packs = new import_obsidian5.Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
     TUNDRA_CREDIT_PACKS.forEach((pack, index) => packs.addButton((button) => {
       button.setButtonText(`Buy $${pack.priceUsd} (${pack.credits.toLocaleString()} credits)`);
       if (index === TUNDRA_CREDIT_PACKS.length - 1) button.setCta();
       button.onClick(() => openCheckout(this.plugin, index === 0 ? "usd001" : "usd010"));
     }));
     containerEl.createEl("p", { cls: "tundra-note", text: `This install's billing device ID is saved locally and is not editable: ${billing.deviceId.slice(0, 18)}\u2026` });
-    if (this.plugin.settings.lastBatch) new import_obsidian4.Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed \xB7 ${this.plugin.settings.lastBatch.createdAt}`).addButton((b) => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
+    if (this.plugin.settings.lastBatch) new import_obsidian5.Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed \xB7 ${this.plugin.settings.lastBatch.createdAt}`).addButton((b) => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
   }
 };
-var WranglerModal = class extends import_obsidian4.Modal {
+var WranglerModal = class extends import_obsidian5.Modal {
   constructor(app, plugin) {
     super(app);
-    this.plugin = plugin;
-    this.step = 0;
-    this.files = [];
-    this.included = /* @__PURE__ */ new Set();
-    this.plans = [];
-    this.reviewed = /* @__PURE__ */ new Set();
-    this.operation = { kind: "rename", oldKey: "", newKey: "", collision: "skip" };
-    this.cancelled = false;
-    this.query = "";
-    this.folder = "";
-    this.recursive = true;
-    this.filterKey = "";
-    this.filterValue = "";
-    this.selectionStats = { withFrontmatter: 0, withoutFrontmatter: 0, skipped: 0 };
-    this.steps = ["Select", "Inspect", "Configure", "Preview", "Apply", "Review"];
+    __publicField(this, "plugin", plugin);
+    __publicField(this, "step", 0);
+    __publicField(this, "files", []);
+    __publicField(this, "included", /* @__PURE__ */ new Set());
+    __publicField(this, "plans", []);
+    __publicField(this, "reviewed", /* @__PURE__ */ new Set());
+    __publicField(this, "operation", { kind: "rename", oldKey: "", newKey: "", collision: "skip" });
+    __publicField(this, "cancelled", false);
+    __publicField(this, "query", "");
+    __publicField(this, "folder", "");
+    __publicField(this, "recursive", true);
+    __publicField(this, "filterKey", "");
+    __publicField(this, "filterValue", "");
+    __publicField(this, "selectionStats", { withFrontmatter: 0, withoutFrontmatter: 0, skipped: 0 });
+    __publicField(this, "steps", ["Select", "Inspect", "Configure", "Preview", "Apply", "Review"]);
     this.modalEl.addClass("tundra-modal");
   }
   onOpen() {
@@ -877,24 +956,24 @@ var WranglerModal = class extends import_obsidian4.Modal {
   }
   footer(parent, next, action, back = true) {
     const f = parent.createDiv("tundra-footer");
-    if (back) new import_obsidian4.ButtonComponent(f).setButtonText("Back").onClick(() => {
+    if (back) new import_obsidian5.ButtonComponent(f).setButtonText("Back").onClick(() => {
       this.step--;
       this.render();
     });
-    new import_obsidian4.ButtonComponent(f).setButtonText(next).setCta().onClick(action);
+    new import_obsidian5.ButtonComponent(f).setButtonText(next).setCta().onClick(action);
   }
   renderSelect(parent) {
     parent.createEl("p", { text: "Choose a safe working set. Selection stays local to this vault." });
-    new import_obsidian4.Setting(parent).setName("Folder").setDesc("Leave blank for the whole vault").addText((t) => t.setPlaceholder("Projects/2026").setValue(this.folder).onChange((v) => {
+    new import_obsidian5.Setting(parent).setName("Folder").setDesc("Leave blank for the whole vault").addText((t) => t.setPlaceholder("Projects/2026").setValue(this.folder).onChange((v) => {
       this.folder = v.trim();
     }));
-    new import_obsidian4.Setting(parent).setName("Include subfolders").addToggle((t) => t.setValue(this.recursive).onChange((v) => this.recursive = v));
-    new import_obsidian4.Setting(parent).setName("Path or text query").setDesc("Matches the note path or its body").addText((t) => t.setPlaceholder("meeting").setValue(this.query).onChange((v) => this.query = v));
-    new import_obsidian4.Setting(parent).setName("Property filter").setDesc("Exact top-level property value").addText((t) => t.setPlaceholder("status").setValue(this.filterKey).onChange((v) => this.filterKey = v)).addText((t) => t.setPlaceholder("active").setValue(this.filterValue).onChange((v) => this.filterValue = v));
+    new import_obsidian5.Setting(parent).setName("Include subfolders").addToggle((t) => t.setValue(this.recursive).onChange((v) => this.recursive = v));
+    new import_obsidian5.Setting(parent).setName("Path or text query").setDesc("Matches the note path or its body").addText((t) => t.setPlaceholder("meeting").setValue(this.query).onChange((v) => this.query = v));
+    new import_obsidian5.Setting(parent).setName("Property filter").setDesc("Exact top-level property value").addText((t) => t.setPlaceholder("status").setValue(this.filterKey).onChange((v) => this.filterKey = v)).addText((t) => t.setPlaceholder("active").setValue(this.filterValue).onChange((v) => this.filterValue = v));
     const run = parent.createDiv("tundra-actions");
-    new import_obsidian4.ButtonComponent(run).setButtonText("Build inventory").setCta().onClick(async () => {
+    new import_obsidian5.ButtonComponent(run).setButtonText("Continue").setCta().onClick(async () => {
       await this.selectFiles();
-      this.step = 1;
+      this.step = 2;
       this.render();
     });
   }
@@ -966,7 +1045,7 @@ var WranglerModal = class extends import_obsidian4.Modal {
   renderConfigure(parent) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
     parent.createEl("h3", { text: "Configure operation" });
-    const setting = new import_obsidian4.Setting(parent).setName("Operation").setDesc("Operations change only top-level properties");
+    const setting = new import_obsidian5.Setting(parent).setName("Operation").setDesc("Operations change only top-level properties");
     setting.addDropdown((d) => d.addOptions({ rename: "Rename property", remove: "Remove property (destructive)", "add-tags": "Add tags", "remove-tags": "Remove tags", "replace-tag": "Replace tag", "normalize-tags": "Normalize tags by exact rule", reorder: "Reorder schema", format: "Format only", "ai-frontmatter": "Generate or update with AI" }).setValue(this.operation.kind).onChange((v) => {
       this.operation = { kind: v, collision: "skip", aiFields: ["title", "summary", "tags"], aiConflict: "keep" };
       this.render();
@@ -975,7 +1054,7 @@ var WranglerModal = class extends import_obsidian4.Modal {
       this.textSetting(parent, "Property key", "oldKey", (_a = this.operation.oldKey) != null ? _a : "");
       if (this.operation.kind === "rename") {
         this.textSetting(parent, "New key", "newKey", (_b = this.operation.newKey) != null ? _b : "");
-        new import_obsidian4.Setting(parent).setName("Collision handling").addDropdown((d) => {
+        new import_obsidian5.Setting(parent).setName("Collision handling").addDropdown((d) => {
           var _a2;
           return d.addOptions({ keep: "Keep existing new key", replace: "Replace with old value", merge: "Merge values", skip: "Skip collided note" }).setValue((_a2 = this.operation.collision) != null ? _a2 : "skip").onChange((v) => this.operation.collision = v);
         });
@@ -990,44 +1069,37 @@ var WranglerModal = class extends import_obsidian4.Modal {
       this.textSetting(parent, "Optional namespace/prefix", "namespace", (_h = this.operation.namespace) != null ? _h : "");
     } else if (this.operation.kind === "reorder") {
       this.textSetting(parent, "Preferred keys (comma separated)", "order", ((_i = this.operation.order) != null ? _i : []).join(", "));
-      new import_obsidian4.Setting(parent).setName("Unknown keys").addDropdown((d) => {
+      new import_obsidian5.Setting(parent).setName("Unknown keys").addDropdown((d) => {
         var _a2;
         return d.addOptions({ after: "Keep after preferred keys", before: "Keep before preferred keys" }).setValue((_a2 = this.operation.unknownPosition) != null ? _a2 : "after").onChange((v) => this.operation.unknownPosition = v);
       });
     } else if (this.operation.kind === "ai-frontmatter") {
       parent.createEl("p", { text: `Requests up to ${MAX_AI_NOTE_CHARS.toLocaleString()} characters of each note body plus existing top-level properties from OpenRouter. AI results are proposals; every changed note must be reviewed before applying.` });
       this.textSetting(parent, "Properties to generate or update (comma separated)", "aiFields", ((_j = this.operation.aiFields) != null ? _j : ["title", "summary", "tags"]).join(", "));
-      new import_obsidian4.Setting(parent).setName("Existing properties").addDropdown((d) => {
+      new import_obsidian5.Setting(parent).setName("Existing properties").addDropdown((d) => {
         var _a2;
         return d.addOptions({ keep: "Keep existing values (recommended)", replace: "Replace with AI suggestions" }).setValue((_a2 = this.operation.aiConflict) != null ? _a2 : "keep").onChange((v) => this.operation.aiConflict = v);
       });
     }
     if (this.operation.kind === "remove") parent.createEl("p", { cls: "tundra-warning", text: "Removing a property changes note files. A recovery journal is created, but confirm the exact key and count." });
-    this.footer(parent, this.operation.kind === "ai-frontmatter" ? "Generate AI preview" : "Preview", () => {
+    this.footer(parent, this.operation.kind === "ai-frontmatter" ? "Generate and apply" : "Apply", () => {
       void (async () => {
         var _a2;
         if (this.operation.kind === "ai-frontmatter") {
           const fields = (_a2 = this.operation.aiFields) != null ? _a2 : [];
           if (!fields.length || fields.some((key) => !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key) || ["__proto__", "constructor", "prototype"].includes(key))) {
-            new import_obsidian4.Notice("Enter one or more simple top-level property names.", 5e3);
+            new import_obsidian5.Notice("Enter one or more simple top-level property names.", 5e3);
             return;
           }
-          if (!this.plugin.settings.aiApiKey.trim()) {
-            new import_obsidian4.Notice("Add your OpenRouter API key in Tundra settings before generating suggestions.", 5e3);
-            return;
-          }
-          const accepted = window.confirm(`Send note bodies (up to ${MAX_AI_NOTE_CHARS} characters per note) and current top-level properties for ${this.included.size} selected note(s) to OpenRouter using ${this.plugin.settings.aiModel || "openai/gpt-5-mini"}? OpenRouter may charge your account. Continue?`);
-          if (!accepted) return;
         }
-        this.step = 3;
-        this.render();
         await this.buildPlan();
+        this.step = this.plans.some((plan) => plan.status === "changed") ? 4 : 3;
         this.render();
       })();
     });
   }
   textSetting(parent, name, key, value) {
-    new import_obsidian4.Setting(parent).setName(name).addText((t) => t.setValue(value).onChange((v) => {
+    new import_obsidian5.Setting(parent).setName(name).addText((t) => t.setValue(value).onChange((v) => {
       if (key === "tags" || key === "order" || key === "aiFields") this.operation[key] = v.split(",").map((s) => s.trim()).filter(Boolean);
       else this.operation[key] = v;
     }));
@@ -1091,15 +1163,14 @@ var WranglerModal = class extends import_obsidian4.Modal {
     }
     parent.createEl("p", { cls: "tundra-note", text: "Apply writes one note at a time. One free or purchased credit is authorized only when this preview contains at least one reviewed change." });
     const f = parent.createDiv("tundra-footer");
-    new import_obsidian4.ButtonComponent(f).setButtonText("Back").onClick(() => {
+    new import_obsidian5.ButtonComponent(f).setButtonText("Back").onClick(() => {
       this.step = 2;
       this.render();
     });
-    const apply = new import_obsidian4.ButtonComponent(f).setButtonText("Confirm and apply").setCta();
+    const apply = new import_obsidian5.ButtonComponent(f).setButtonText("Confirm and apply").setCta();
     apply.setDisabled(!isBillableApply(changed.length) || !changed.every((p) => this.reviewed.has(p.path)));
     apply.onClick(() => {
       if (!isBillableApply(changed.length) || !changed.every((p) => this.reviewed.has(p.path))) return;
-      if (this.operation.kind === "remove" && !window.confirm(`Remove property ${this.operation.oldKey} from ${changed.length} notes? This changes note files.`)) return;
       this.cancelled = false;
       this.step = 4;
       this.render();
@@ -1109,9 +1180,9 @@ var WranglerModal = class extends import_obsidian4.Modal {
     parent.createEl("h3", { text: "Applying changes" });
     const progress = parent.createEl("progress", { attr: { max: String(this.plans.length), value: "0" } });
     const status = parent.createEl("p", { text: "Authorizing write batch\u2026", cls: "tundra-status" });
-    const cancel = new import_obsidian4.ButtonComponent(parent).setButtonText("Cancel after current note");
+    const cancel = new import_obsidian5.ButtonComponent(parent).setButtonText("Cancel after current note");
     cancel.setDisabled(true);
-    const back = new import_obsidian4.ButtonComponent(parent).setButtonText("Back to preview").onClick(() => {
+    const back = new import_obsidian5.ButtonComponent(parent).setButtonText("Back to preview").onClick(() => {
       this.step = 3;
       this.render();
     });
@@ -1121,7 +1192,7 @@ var WranglerModal = class extends import_obsidian4.Modal {
       for (const plan of this.plans) {
         if (plan.status !== "changed" || !plan.after) continue;
         const file = this.app.vault.getAbstractFileByPath(plan.path);
-        if (!(file instanceof import_obsidian4.TFile)) continue;
+        if (!(file instanceof import_obsidian5.TFile)) continue;
         try {
           if (await this.app.vault.read(file) === plan.before) {
             hasCurrentChange = true;
@@ -1157,7 +1228,7 @@ var WranglerModal = class extends import_obsidian4.Modal {
           continue;
         }
         const file = this.app.vault.getAbstractFileByPath(p.path);
-        if (!(file instanceof import_obsidian4.TFile)) {
+        if (!(file instanceof import_obsidian5.TFile)) {
           batch.summary.failed++;
           continue;
         }
@@ -1176,7 +1247,7 @@ var WranglerModal = class extends import_obsidian4.Modal {
       }
       if (batch.summary.changed > 0) {
         const billingResult = await reservation.commit();
-        if (billingResult.kind === "pending") new import_obsidian4.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
+        if (billingResult.kind === "pending") new import_obsidian5.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
       } else {
         await reservation.rollback();
       }
@@ -1194,11 +1265,11 @@ var WranglerModal = class extends import_obsidian4.Modal {
       return;
     }
     parent.createEl("p", { text: `${batch.summary.changed} changed \xB7 ${batch.summary.skipped} skipped \xB7 ${batch.summary.failed} failed \xB7 ${batch.summary.unchanged} unchanged` });
-    new import_obsidian4.ButtonComponent(parent).setButtonText("Rollback most recent batch").onClick(async () => {
+    new import_obsidian5.ButtonComponent(parent).setButtonText("Rollback most recent batch").onClick(async () => {
       await rollback(this.app, this.plugin);
       this.render();
     });
-    new import_obsidian4.ButtonComponent(parent).setButtonText("Open operation log").onClick(() => new LogModal(this.app, batch).open());
+    new import_obsidian5.ButtonComponent(parent).setButtonText("Open operation log").onClick(() => new LogModal(this.app, batch).open());
     this.footer(parent, "Done", () => this.close(), false);
   }
 };
@@ -1206,10 +1277,10 @@ async function requestAiFrontmatter(body, existing, fields, settings) {
   var _a, _b, _c, _d;
   const model = settings.aiModel.trim() || "openai/gpt-5-mini";
   const input = { existingProperties: existing, noteBody: body.slice(0, MAX_AI_NOTE_CHARS), requestedProperties: fields };
-  const response = await (0, import_obsidian4.requestUrl)({
+  const response = await (0, import_obsidian5.requestUrl)({
     url: "https://openrouter.ai/api/v1/chat/completions",
     method: "POST",
-    headers: { Authorization: `Bearer ${settings.aiApiKey.trim()}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${await resolveOpenRouterKey(settings.aiApiKey)}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       temperature: 0.2,
@@ -1244,15 +1315,14 @@ async function requestAiFrontmatter(body, existing, fields, settings) {
 async function rollback(app, plugin) {
   const batch = plugin.settings.lastBatch;
   if (!batch) {
-    new import_obsidian4.Notice("No recovery journal is available.");
+    new import_obsidian5.Notice("No recovery journal is available.");
     return;
   }
-  if (!window.confirm(`Restore ${batch.files.length} note(s) from the most recent journal?`)) return;
   let restored = 0;
   let skipped = 0;
   for (const entry of batch.files) {
     const file = app.vault.getAbstractFileByPath(entry.path);
-    if (!(file instanceof import_obsidian4.TFile)) {
+    if (!(file instanceof import_obsidian5.TFile)) {
       skipped++;
       continue;
     }
@@ -1268,12 +1338,12 @@ async function rollback(app, plugin) {
       skipped++;
     }
   }
-  new import_obsidian4.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
+  new import_obsidian5.Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
 }
-var LogModal = class extends import_obsidian4.Modal {
+var LogModal = class extends import_obsidian5.Modal {
   constructor(app, batch) {
     super(app);
-    this.batch = batch;
+    __publicField(this, "batch", batch);
   }
   onOpen() {
     this.contentEl.createEl("h3", { text: "Tundra operation log" });

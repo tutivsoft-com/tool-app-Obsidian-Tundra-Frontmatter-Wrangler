@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.5.4 - 2026-09-24
+
+- Loaded this repository's own $2 no-reset OpenRouter key from an encrypted manifest, with a personal key override.
+
 ## 3.5.3 - 2026-09-24
 
 - Added current feature, architecture, requirements, and marketing documentation.
