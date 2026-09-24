@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler — Software Architecture
 
-Version: 3.6.7
+Version: 3.6.8
 
 ## Runtime boundaries
 
@@ -8,7 +8,7 @@ Tundra is an Obsidian plugin for local Markdown vaults. Deterministic selection,
 
 ## Runtime flow
 
-1. `main.ts` registers the command, ribbon action, settings, compact target/operation view, and plugin-data persistence.
+1. `main.ts` registers direct configured note/folder/selection actions, the wrangler view, settings, and plugin-data persistence. With review disabled, configured actions build and apply their plan without opening a modal; review enabled opens the before/after review.
 2. Selection defaults to the active note; searchable pickers support another note or folder, and the whole vault is an explicit choice. Optional property and text/path filters remain collapsed until needed.
 3. `core.ts` parses only the supported frontmatter shape and builds deterministic plans for the selected operation. Unsafe inputs and malformed YAML become explicit skipped results.
 4. The selected operation builds a plan and applies eligible changes. Optional AI generation produces top-level-value proposals in that same flow.

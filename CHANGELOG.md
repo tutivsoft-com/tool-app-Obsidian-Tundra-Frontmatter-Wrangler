@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.6.8 (2026-09-24)
+
+- With review disabled, configured note, folder, and selection actions now apply directly without opening the wrangler or progress window. Enabling review keeps the before/after review flow.
+
 ## 3.6.7 (2026-09-24)
 
 - Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.

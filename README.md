@@ -1,8 +1,8 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.6.7`
+Version: `3.6.8`
 
-Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Open the wrangler from a note, choose an operation, review the preview, and apply it. Tundra keeps a rollback journal.
+Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Configured note, folder, and selection actions run directly without opening a progress window; before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
 
 See [Frontmatter Interoperability Field Guide](./FRONTMATTER_INTEROPERABILITY_FIELD_GUIDE.md) for the cumulative 4/9/21/50-field tiers, with `image` included from Bare Minimum upward.
 
@@ -14,7 +14,7 @@ The compact workflow is:
 
 1. **Choose a target** — the open note is selected by default. Use Obsidian's searchable picker for another note or folder, or deliberately select the entire vault. Optional filters are collapsed until needed.
 2. **Choose an operation** — generate frontmatter is the default; deterministic property, tag, and formatting operations remain available. AI tier and existing-value behavior are reusable Settings defaults.
-3. **Apply** — configured-operation commands run directly with progress, cancellation, stale-preview protection, and per-note error handling. Turn on **Review before applying** in settings to show before/after changes and confirm the batch.
+3. **Apply** — configured-operation commands and context-menu actions run directly with stale-plan protection and per-note error handling. Turn on **Review before applying** in settings to show before/after changes and confirm the batch.
 4. **Review** — see the post-run summary, open the local operation log, or roll back the most recent batch.
 
 For a one-click run after setup, choose a **Default operation** and its values in settings, then use **Apply configured operation to current note** or **Apply configured operation to current folder**. Before/after review is off by default and can be enabled in settings.

@@ -1036,14 +1036,14 @@ var TundraPlugin = class extends import_obsidian5.Plugin {
     this.addCommand({ id: "apply-configured-current-note", name: "Apply configured operation to current note", checkCallback: (checking) => {
       const file = this.app.workspace.getActiveFile();
       if (checking) return !!file;
-      if (file) new WranglerModal(this.app, this, { file }, true).open();
+      if (file) this.applyConfigured({ file });
       return true;
     } });
     this.addCommand({ id: "apply-configured-current-folder", name: "Apply configured operation to current folder", checkCallback: (checking) => {
       var _a2;
       const folder = (_a2 = this.app.workspace.getActiveFile()) == null ? void 0 : _a2.parent;
       if (checking) return !!(folder == null ? void 0 : folder.path);
-      if (folder) new WranglerModal(this.app, this, { folder }, true).open();
+      if (folder) this.applyConfigured({ folder });
       return true;
     } });
     this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open());
@@ -1057,11 +1057,11 @@ var TundraPlugin = class extends import_obsidian5.Plugin {
   }
   addNoteMenuItem(menu, file) {
     if (file.extension.toLowerCase() !== "md") return;
-    menu.addItem((item) => item.setTitle("Tundra: Update frontmatter for this note").setIcon("wand-sparkles").onClick(() => new WranglerModal(this.app, this, { file }).open()));
+    menu.addItem((item) => item.setTitle("Tundra: Update frontmatter for this note").setIcon("wand-sparkles").onClick(() => this.applyConfigured({ file })));
   }
   addFileMenuItems(menu, file) {
     if (file instanceof import_obsidian5.TFile) this.addNoteMenuItem(menu, file);
-    else if (file instanceof import_obsidian5.TFolder && file.path) menu.addItem((item) => item.setTitle("Tundra: Update frontmatter in this folder").setIcon("folder-cog").onClick(() => new WranglerModal(this.app, this, { folder: file }).open()));
+    else if (file instanceof import_obsidian5.TFolder && file.path) menu.addItem((item) => item.setTitle("Tundra: Update frontmatter in this folder").setIcon("folder-cog").onClick(() => this.applyConfigured({ folder: file })));
   }
   addFilesMenuItems(menu, selected) {
     const paths = /* @__PURE__ */ new Set();
@@ -1072,7 +1072,12 @@ var TundraPlugin = class extends import_obsidian5.Plugin {
       }
     }
     const files = [...paths].map((path) => this.app.vault.getAbstractFileByPath(path)).filter((file) => file instanceof import_obsidian5.TFile);
-    if (files.length) menu.addItem((item) => item.setTitle(`Tundra: Update frontmatter for ${files.length} selected note${files.length === 1 ? "" : "s"}`).setIcon("wand-sparkles").onClick(() => new WranglerModal(this.app, this, { files }).open()));
+    if (files.length) menu.addItem((item) => item.setTitle(`Tundra: Update frontmatter for ${files.length} selected note${files.length === 1 ? "" : "s"}`).setIcon("wand-sparkles").onClick(() => this.applyConfigured({ files })));
+  }
+  applyConfigured(target) {
+    const modal = new WranglerModal(this.app, this, target, true);
+    if (this.settings.reviewBeforeApply) modal.open();
+    else void modal.runConfiguredDirectly();
   }
   async saveSettings() {
     if (!(this.settings.aiTier in AI_FIELD_TIERS)) this.settings.aiTier = DEFAULT_AI_TIER;
@@ -1213,6 +1218,7 @@ var WranglerModal = class extends import_obsidian5.Modal {
     this.filterKey = "";
     this.filterValue = "";
     this.cancelled = false;
+    this.opened = false;
     this.operation = { ...this.plugin.settings.defaultOperation, tags: [...(_d = this.plugin.settings.defaultOperation.tags) != null ? _d : []], order: [...(_e = this.plugin.settings.defaultOperation.order) != null ? _e : []], aiFields: [...(_f = this.plugin.settings.defaultOperation.aiFields) != null ? _f : []] };
     this.modalEl.addClass("tundra-modal");
     if (target == null ? void 0 : target.file) {
@@ -1230,11 +1236,16 @@ var WranglerModal = class extends import_obsidian5.Modal {
     }
   }
   onOpen() {
+    this.opened = true;
     if (this.autoRun) void this.preparePreview();
     else this.render();
   }
   onClose() {
+    this.opened = false;
     this.contentEl.empty();
+  }
+  async runConfiguredDirectly() {
+    await this.preparePreview();
   }
   render() {
     const c = this.contentEl;
@@ -1408,8 +1419,17 @@ var WranglerModal = class extends import_obsidian5.Modal {
     }
     await this.buildPlan();
     this.reviewedAll = false;
-    this.step = this.plugin.settings.reviewBeforeApply ? 1 : 2;
-    this.render();
+    if (this.plugin.settings.reviewBeforeApply) {
+      this.step = 1;
+      this.render();
+      return;
+    }
+    const batch = await this.applyPlans();
+    if (batch) {
+      const { changed, skipped, failed, unchanged } = batch.summary;
+      new import_obsidian5.Notice(`Tundra: ${changed} changed \xB7 ${skipped} skipped \xB7 ${failed} failed \xB7 ${unchanged} unchanged. Rollback is available in Settings.`, 5e3);
+    }
+    if (this.opened) this.close();
   }
   async buildPlan() {
     var _a2;
@@ -1491,77 +1511,75 @@ var WranglerModal = class extends import_obsidian5.Modal {
       this.render();
     }).setDisabled(true);
     void (async () => {
-      let hasCurrentChange = false;
-      for (const plan of this.plans) {
-        if (plan.status !== "changed" || !plan.after) continue;
-        const file = this.app.vault.getAbstractFileByPath(plan.path);
-        if (!(file instanceof import_obsidian5.TFile)) continue;
-        try {
-          if (await this.app.vault.read(file) === plan.before) {
-            hasCurrentChange = true;
-            break;
-          }
-        } catch (e) {
-        }
-      }
-      if (!hasCurrentChange) {
-        status.setText("No previewed changes are still applicable. No credit was used.");
+      const batch = await this.applyPlans((completed, total, path) => {
+        progress.value = completed;
+        status.setText(`${completed}/${total}: ${path}`);
+      }, () => this.cancelled);
+      if (!batch) {
         back.setDisabled(false);
-        return;
-      }
-      const reservation = await reserveUse(this.plugin);
-      if (!reservation) {
-        status.setText("Billing authorization failed. No notes were changed.");
-        back.setDisabled(false);
-        return;
-      }
-      cancel.setDisabled(false);
-      const batch = { id: crypto.randomUUID(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
-      for (let i = 0; i < this.plans.length; i++) {
-        if (this.cancelled) {
-          status.setText("Cancelled. Notes already completed remain journaled.");
-          break;
-        }
-        const plan = this.plans[i];
-        progress.value = i + 1;
-        status.setText(`${i + 1}/${this.plans.length}: ${plan.path}`);
-        if (plan.status !== "changed" || !plan.after) {
-          batch.summary[plan.status]++;
-          continue;
-        }
-        const file = this.app.vault.getAbstractFileByPath(plan.path);
-        if (!(file instanceof import_obsidian5.TFile)) {
-          batch.summary.failed++;
-          continue;
-        }
-        try {
-          if (await this.app.vault.read(file) !== plan.before) {
-            batch.summary.skipped++;
-            continue;
-          }
-          batch.files.push({ path: plan.path, original: plan.before, after: plan.after });
-          await this.app.vault.modify(file, plan.after);
-          batch.summary.changed++;
-        } catch (e) {
-          batch.summary.failed++;
-        }
-      }
-      if (batch.summary.changed > 0) {
-        const billingResult = await reservation.commit();
-        if (billingResult.kind === "pending") new import_obsidian5.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
-      } else await reservation.rollback();
-      this.plugin.settings.lastBatch = batch;
-      await this.plugin.saveSettings();
-      if (!this.plugin.settings.reviewBeforeApply) {
-        const { changed, skipped, failed, unchanged } = batch.summary;
-        new import_obsidian5.Notice(`Tundra: ${changed} changed \xB7 ${skipped} skipped \xB7 ${failed} failed \xB7 ${unchanged} unchanged. Rollback is available in Settings.`, 5e3);
-        this.close();
         return;
       }
       this.step = 3;
       this.render();
     })();
     cancel.onClick(() => this.cancelled = true);
+  }
+  async applyPlans(onProgress, isCancelled) {
+    let hasCurrentChange = false;
+    for (const plan of this.plans) {
+      if (plan.status !== "changed" || !plan.after) continue;
+      const file = this.app.vault.getAbstractFileByPath(plan.path);
+      if (!(file instanceof import_obsidian5.TFile)) continue;
+      try {
+        if (await this.app.vault.read(file) === plan.before) {
+          hasCurrentChange = true;
+          break;
+        }
+      } catch (e) {
+      }
+    }
+    if (!hasCurrentChange) {
+      new import_obsidian5.Notice("No planned changes are still applicable. No credit was used.", 5e3);
+      return null;
+    }
+    const reservation = await reserveUse(this.plugin);
+    if (!reservation) {
+      new import_obsidian5.Notice("Tundra billing authorization failed. No notes were changed.", 5e3);
+      return null;
+    }
+    const batch = { id: crypto.randomUUID(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
+    for (let i = 0; i < this.plans.length; i++) {
+      if (isCancelled == null ? void 0 : isCancelled()) break;
+      const plan = this.plans[i];
+      onProgress == null ? void 0 : onProgress(i + 1, this.plans.length, plan.path);
+      if (plan.status !== "changed" || !plan.after) {
+        batch.summary[plan.status]++;
+        continue;
+      }
+      const file = this.app.vault.getAbstractFileByPath(plan.path);
+      if (!(file instanceof import_obsidian5.TFile)) {
+        batch.summary.failed++;
+        continue;
+      }
+      try {
+        if (await this.app.vault.read(file) !== plan.before) {
+          batch.summary.skipped++;
+          continue;
+        }
+        batch.files.push({ path: plan.path, original: plan.before, after: plan.after });
+        await this.app.vault.modify(file, plan.after);
+        batch.summary.changed++;
+      } catch (e) {
+        batch.summary.failed++;
+      }
+    }
+    if (batch.summary.changed > 0) {
+      const billingResult = await reservation.commit();
+      if (billingResult.kind === "pending") new import_obsidian5.Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5e3);
+    } else await reservation.rollback();
+    this.plugin.settings.lastBatch = batch;
+    await this.plugin.saveSettings();
+    return batch;
   }
   renderReview(parent) {
     const batch = this.plugin.settings.lastBatch;

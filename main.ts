@@ -38,8 +38,8 @@ export default class TundraPlugin extends Plugin {
     this.addCommand({ id: "open-wrangle", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
     this.addCommand({ id: "open-wrangle-current-note", name: "Open frontmatter wrangler for current note", checkCallback: (checking) => { const file = this.app.workspace.getActiveFile(); if (checking) return !!file; if (file) new WranglerModal(this.app, this, { file }).open(); return true; } });
     this.addCommand({ id: "open-wrangle-current-folder", name: "Open frontmatter wrangler for current folder", checkCallback: (checking) => { const folder = this.app.workspace.getActiveFile()?.parent; if (checking) return !!folder?.path; if (folder) new WranglerModal(this.app, this, { folder }).open(); return true; } });
-    this.addCommand({ id: "apply-configured-current-note", name: "Apply configured operation to current note", checkCallback: (checking) => { const file = this.app.workspace.getActiveFile(); if (checking) return !!file; if (file) new WranglerModal(this.app, this, { file }, true).open(); return true; } });
-    this.addCommand({ id: "apply-configured-current-folder", name: "Apply configured operation to current folder", checkCallback: (checking) => { const folder = this.app.workspace.getActiveFile()?.parent; if (checking) return !!folder?.path; if (folder) new WranglerModal(this.app, this, { folder }, true).open(); return true; } });
+    this.addCommand({ id: "apply-configured-current-note", name: "Apply configured operation to current note", checkCallback: (checking) => { const file = this.app.workspace.getActiveFile(); if (checking) return !!file; if (file) this.applyConfigured({ file }); return true; } });
+    this.addCommand({ id: "apply-configured-current-folder", name: "Apply configured operation to current folder", checkCallback: (checking) => { const folder = this.app.workspace.getActiveFile()?.parent; if (checking) return !!folder?.path; if (folder) this.applyConfigured({ folder }); return true; } });
     this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open());
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => this.addFileMenuItems(menu, file)));
     this.registerEvent(this.app.workspace.on("files-menu", (menu, files) => this.addFilesMenuItems(menu, files)));
@@ -49,12 +49,12 @@ export default class TundraPlugin extends Plugin {
 
   private addNoteMenuItem(menu: Menu, file: TFile): void {
     if (file.extension.toLowerCase() !== "md") return;
-    menu.addItem(item => item.setTitle("Tundra: Update frontmatter for this note").setIcon("wand-sparkles").onClick(() => new WranglerModal(this.app, this, { file }).open()));
+    menu.addItem(item => item.setTitle("Tundra: Update frontmatter for this note").setIcon("wand-sparkles").onClick(() => this.applyConfigured({ file })));
   }
 
   private addFileMenuItems(menu: Menu, file: TAbstractFile): void {
     if (file instanceof TFile) this.addNoteMenuItem(menu, file);
-    else if (file instanceof TFolder && file.path) menu.addItem(item => item.setTitle("Tundra: Update frontmatter in this folder").setIcon("folder-cog").onClick(() => new WranglerModal(this.app, this, { folder: file }).open()));
+    else if (file instanceof TFolder && file.path) menu.addItem(item => item.setTitle("Tundra: Update frontmatter in this folder").setIcon("folder-cog").onClick(() => this.applyConfigured({ folder: file })));
   }
 
   private addFilesMenuItems(menu: Menu, selected: TAbstractFile[]): void {
@@ -64,7 +64,12 @@ export default class TundraPlugin extends Plugin {
       else if (entry instanceof TFolder) for (const file of this.app.vault.getMarkdownFiles()) if (file.path.startsWith(`${entry.path}/`)) paths.add(file.path);
     }
     const files = [...paths].map(path => this.app.vault.getAbstractFileByPath(path)).filter((file): file is TFile => file instanceof TFile);
-    if (files.length) menu.addItem(item => item.setTitle(`Tundra: Update frontmatter for ${files.length} selected note${files.length === 1 ? "" : "s"}`).setIcon("wand-sparkles").onClick(() => new WranglerModal(this.app, this, { files }).open()));
+    if (files.length) menu.addItem(item => item.setTitle(`Tundra: Update frontmatter for ${files.length} selected note${files.length === 1 ? "" : "s"}`).setIcon("wand-sparkles").onClick(() => this.applyConfigured({ files })));
+  }
+  applyConfigured(target: { file?: TFile; folder?: TFolder; files?: TFile[] }) {
+    const modal = new WranglerModal(this.app, this, target, true);
+    if (this.settings.reviewBeforeApply) modal.open();
+    else void modal.runConfiguredDirectly();
   }
   async saveSettings() { if (!(this.settings.aiTier in AI_FIELD_TIERS)) this.settings.aiTier = DEFAULT_AI_TIER; if (this.settings.aiConflict !== "replace") this.settings.aiConflict = "keep"; await this.saveData(this.settings); }
 }
@@ -127,6 +132,7 @@ class WranglerModal extends Modal {
   private filterKey = "";
   private filterValue = "";
   private cancelled = false;
+  private opened = false;
   private operation: Operation = { ...this.plugin.settings.defaultOperation, tags: [...(this.plugin.settings.defaultOperation.tags ?? [])], order: [...(this.plugin.settings.defaultOperation.order ?? [])], aiFields: [...(this.plugin.settings.defaultOperation.aiFields ?? [])] };
 
   constructor(app: App, private plugin: TundraPlugin, target?: { file?: TFile; folder?: TFolder; files?: TFile[] }, private autoRun = false) {
@@ -136,8 +142,10 @@ class WranglerModal extends Modal {
     if (target?.folder) { this.targetScope = "folder"; this.folder = target.folder.path; }
     if (target?.files?.length) { this.files = target.files; this.targetScope = "selection"; }
   }
-  onOpen() { if (this.autoRun) void this.preparePreview(); else this.render(); }
-  onClose() { this.contentEl.empty(); }
+  onOpen() { this.opened = true; if (this.autoRun) void this.preparePreview(); else this.render(); }
+  onClose() { this.opened = false; this.contentEl.empty(); }
+
+  async runConfiguredDirectly() { await this.preparePreview(); }
 
   private render() {
     const c = this.contentEl;
@@ -294,8 +302,17 @@ class WranglerModal extends Modal {
     if (!this.files.length) { new Notice("No Markdown notes match this target and its filters.", 5000); return; }
     await this.buildPlan();
     this.reviewedAll = false;
-    this.step = this.plugin.settings.reviewBeforeApply ? 1 : 2;
-    this.render();
+    if (this.plugin.settings.reviewBeforeApply) {
+      this.step = 1;
+      this.render();
+      return;
+    }
+    const batch = await this.applyPlans();
+    if (batch) {
+      const { changed, skipped, failed, unchanged } = batch.summary;
+      new Notice(`Tundra: ${changed} changed · ${skipped} skipped · ${failed} failed · ${unchanged} unchanged. Rollback is available in Settings.`, 5000);
+    }
+    if (this.opened) this.close();
   }
 
   private async buildPlan() {
@@ -354,49 +371,50 @@ class WranglerModal extends Modal {
     const cancel = new ButtonComponent(parent).setButtonText("Cancel after current note").setDisabled(true);
     const back = new ButtonComponent(parent).setButtonText("Back").onClick(() => { this.step = this.plugin.settings.reviewBeforeApply ? 1 : 0; this.render(); }).setDisabled(true);
     void (async () => {
-      let hasCurrentChange = false;
-      for (const plan of this.plans) {
-        if (plan.status !== "changed" || !plan.after) continue;
-        const file = this.app.vault.getAbstractFileByPath(plan.path);
-        if (!(file instanceof TFile)) continue;
-        try { if (await this.app.vault.read(file) === plan.before) { hasCurrentChange = true; break; } } catch { /* The apply loop reports unreadable notes. */ }
-      }
-      if (!hasCurrentChange) { status.setText("No previewed changes are still applicable. No credit was used."); back.setDisabled(false); return; }
-      const reservation = await reserveUse(this.plugin);
-      if (!reservation) { status.setText("Billing authorization failed. No notes were changed."); back.setDisabled(false); return; }
-      cancel.setDisabled(false);
-      const batch: Batch = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
-      for (let i = 0; i < this.plans.length; i++) {
-        if (this.cancelled) { status.setText("Cancelled. Notes already completed remain journaled."); break; }
-        const plan = this.plans[i];
-        progress.value = i + 1;
-        status.setText(`${i + 1}/${this.plans.length}: ${plan.path}`);
-        if (plan.status !== "changed" || !plan.after) { batch.summary[plan.status]++; continue; }
-        const file = this.app.vault.getAbstractFileByPath(plan.path);
-        if (!(file instanceof TFile)) { batch.summary.failed++; continue; }
-        try {
-          if (await this.app.vault.read(file) !== plan.before) { batch.summary.skipped++; continue; }
-          batch.files.push({ path: plan.path, original: plan.before, after: plan.after });
-          await this.app.vault.modify(file, plan.after);
-          batch.summary.changed++;
-        } catch { batch.summary.failed++; }
-      }
-      if (batch.summary.changed > 0) {
-        const billingResult = await reservation.commit();
-        if (billingResult.kind === "pending") new Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5000);
-      } else await reservation.rollback();
-      this.plugin.settings.lastBatch = batch;
-      await this.plugin.saveSettings();
-      if (!this.plugin.settings.reviewBeforeApply) {
-        const { changed, skipped, failed, unchanged } = batch.summary;
-        new Notice(`Tundra: ${changed} changed · ${skipped} skipped · ${failed} failed · ${unchanged} unchanged. Rollback is available in Settings.`, 5000);
-        this.close();
-        return;
-      }
+      const batch = await this.applyPlans((completed, total, path) => {
+        progress.value = completed;
+        status.setText(`${completed}/${total}: ${path}`);
+      }, () => this.cancelled);
+      if (!batch) { back.setDisabled(false); return; }
       this.step = 3;
       this.render();
     })();
     cancel.onClick(() => this.cancelled = true);
+  }
+
+  private async applyPlans(onProgress?: (completed: number, total: number, path: string) => void, isCancelled?: () => boolean): Promise<Batch | null> {
+    let hasCurrentChange = false;
+    for (const plan of this.plans) {
+      if (plan.status !== "changed" || !plan.after) continue;
+      const file = this.app.vault.getAbstractFileByPath(plan.path);
+      if (!(file instanceof TFile)) continue;
+      try { if (await this.app.vault.read(file) === plan.before) { hasCurrentChange = true; break; } } catch { /* The apply loop reports unreadable notes. */ }
+    }
+    if (!hasCurrentChange) { new Notice("No planned changes are still applicable. No credit was used.", 5000); return null; }
+    const reservation = await reserveUse(this.plugin);
+    if (!reservation) { new Notice("Tundra billing authorization failed. No notes were changed.", 5000); return null; }
+    const batch: Batch = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
+    for (let i = 0; i < this.plans.length; i++) {
+      if (isCancelled?.()) break;
+      const plan = this.plans[i];
+      onProgress?.(i + 1, this.plans.length, plan.path);
+      if (plan.status !== "changed" || !plan.after) { batch.summary[plan.status]++; continue; }
+      const file = this.app.vault.getAbstractFileByPath(plan.path);
+      if (!(file instanceof TFile)) { batch.summary.failed++; continue; }
+      try {
+        if (await this.app.vault.read(file) !== plan.before) { batch.summary.skipped++; continue; }
+        batch.files.push({ path: plan.path, original: plan.before, after: plan.after });
+        await this.app.vault.modify(file, plan.after);
+        batch.summary.changed++;
+      } catch { batch.summary.failed++; }
+    }
+    if (batch.summary.changed > 0) {
+      const billingResult = await reservation.commit();
+      if (billingResult.kind === "pending") new Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5000);
+    } else await reservation.rollback();
+    this.plugin.settings.lastBatch = batch;
+    await this.plugin.saveSettings();
+    return batch;
   }
 
   private renderReview(parent: HTMLElement) {
