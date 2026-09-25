@@ -822,21 +822,43 @@ var SAFE_DETAIL_KEYS = /* @__PURE__ */ new Set([
   "outcome",
   "restored",
   "authorizationSource",
-  "cancelled"
+  "cancelled",
+  "line",
+  "column",
+  "settingCount",
+  "attempt",
+  "attempts",
+  "queueCount",
+  "itemCount",
+  "fileCount",
+  "imageCount",
+  "stage",
+  "category",
+  "status",
+  "durationMs",
+  "elapsedMs"
 ]);
-function safeDetail(value) {
-  if (value instanceof Error) return JSON.stringify({ errorType: value.name || "Error" });
-  if (typeof value === "string") return /^[A-Za-z0-9 _=.,:-]{0,300}$/.test(value) ? value : "[text omitted]";
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const safe = {};
-    for (const [key, item] of Object.entries(value)) {
-      if (!SAFE_DETAIL_KEYS.has(key)) continue;
-      if (typeof item === "string") safe[key] = /^[A-Za-z0-9 _=.,:-]{0,120}$/.test(item) ? item : "[omitted]";
-      else if (typeof item === "number" || typeof item === "boolean" || item === null) safe[key] = item;
-    }
-    return JSON.stringify(safe);
+function safeString(value) {
+  if (value.length <= 120 && /^[A-Za-z0-9 _=.,:-]*$/.test(value) && !/(?:sk-[A-Za-z0-9]|bearer|api.?key|token|secret)/i.test(value)) {
+    return value;
   }
-  return "[detail omitted]";
+  return "[omitted]";
+}
+function safeDetail(value) {
+  if (value instanceof Error) return JSON.stringify({ errorType: safeString(value.name || "Error") });
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "[detail omitted]";
+  const safe = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!SAFE_DETAIL_KEYS.has(key)) continue;
+    if (typeof item === "string") safe[key] = safeString(item);
+    else if (typeof item === "number" && Number.isFinite(item)) safe[key] = item;
+    else if (typeof item === "boolean" || item === null) safe[key] = item;
+  }
+  return JSON.stringify(safe);
+}
+function safeErrorType(error) {
+  if (error instanceof Error) return safeString(error.name || "Error");
+  return safeString(typeof error);
 }
 var DocumentationModal = class extends import_obsidian4.Modal {
   constructor(app, docs) {
@@ -844,7 +866,7 @@ var DocumentationModal = class extends import_obsidian4.Modal {
     this.docs = docs;
   }
   onOpen() {
-    this.titleEl.setText(`${this.docs.name} documentation`);
+    this.titleEl.setText(this.docs.name + " documentation");
     this.contentEl.createEl("p", { text: this.docs.summary });
     const addSection = (title, items) => {
       this.contentEl.createEl("h3", { text: title });
@@ -852,7 +874,7 @@ var DocumentationModal = class extends import_obsidian4.Modal {
       for (const item of items) list.createEl("li", { text: item });
     };
     addSection("Quick start", this.docs.quickStart);
-    addSection("Useful commands", this.docs.commands);
+    addSection("Useful commands", Array.from(/* @__PURE__ */ new Set([...this.docs.commands, "Copy full debug log"])));
     addSection("Troubleshooting", this.docs.troubleshooting);
   }
   onClose() {
@@ -864,31 +886,38 @@ var PluginSupport = class {
     this.plugin = plugin;
     this.docs = docs;
     this.entries = [];
-    this.maxEntries = 250;
+    this.maxEntries = 1e3;
+    this.droppedEntries = 0;
+    this.started = false;
   }
   start() {
-    this.info("plugin.loaded", `version=${this.plugin.manifest.version}`);
+    if (this.started) return;
+    this.started = true;
+    this.info("plugin.loaded", { version: this.plugin.manifest.version });
     this.plugin.registerDomEvent(window, "error", (event) => {
       const error = event.error;
-      this.error("runtime.error", { errorType: error instanceof Error ? error.name : "ErrorEvent" });
+      this.error("runtime.error", {
+        errorType: error instanceof Error ? error.name : "ErrorEvent",
+        line: event.lineno,
+        column: event.colno
+      });
     });
     this.plugin.registerDomEvent(window, "unhandledrejection", (event) => {
-      const reason = event.reason;
-      this.error("runtime.unhandled_rejection", { errorType: reason instanceof Error ? reason.name : typeof reason });
+      this.error("runtime.unhandled_rejection", { errorType: safeErrorType(event.reason) });
     });
-    this.plugin.addCommand({
+    const addCommand = this.plugin.addCommand.bind(this.plugin);
+    const registerCommand = (command) => addCommand(this.instrumentCommand(command));
+    registerCommand({
       id: "open-documentation",
       name: "Open documentation",
       callback: () => new DocumentationModal(this.plugin.app, this.docs).open()
     });
-    this.plugin.addCommand({
+    registerCommand({
       id: "copy-debug-log",
-      name: "Copy debug log",
-      callback: () => {
-        void this.copyDiagnostics();
-      }
+      name: "Copy full debug log",
+      callback: () => this.copyDiagnostics()
     });
-    this.plugin.addCommand({
+    registerCommand({
       id: "open-plugin-settings",
       name: "Open plugin settings",
       callback: () => {
@@ -897,6 +926,7 @@ var PluginSupport = class {
         setting == null ? void 0 : setting.openTabById(this.plugin.manifest.id);
       }
     });
+    this.instrumentFutureCommands(addCommand);
   }
   info(event, detail) {
     this.record("info", event, detail);
@@ -907,32 +937,98 @@ var PluginSupport = class {
   error(event, detail) {
     this.record("error", event, detail);
   }
+  addDiagnosticsSetting(containerEl) {
+    new import_obsidian4.Setting(containerEl).setName("Diagnostics").setDesc("Copy up to the latest 1,000 events recorded by this plugin. Logs reset when the plugin reloads. Note contents, paths, credentials, and raw error messages are excluded.").addButton((button) => button.setButtonText("Copy full log").onClick(() => {
+      void this.copyDiagnostics();
+    }));
+  }
+  instrumentFutureCommands(addCommand) {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(this.plugin, "addCommand");
+    Object.defineProperty(this.plugin, "addCommand", {
+      configurable: true,
+      writable: true,
+      value: (command) => addCommand(this.instrumentCommand(command))
+    });
+    this.plugin.register(() => {
+      if (originalDescriptor) Object.defineProperty(this.plugin, "addCommand", originalDescriptor);
+      else Reflect.deleteProperty(this.plugin, "addCommand");
+    });
+  }
+  instrumentCommand(command) {
+    const instrument = (callback) => (...args) => this.trackCommand(command.id, () => callback.apply(command, args));
+    return {
+      ...command,
+      callback: command.callback ? instrument(command.callback) : void 0,
+      editorCallback: command.editorCallback ? instrument(command.editorCallback) : void 0,
+      checkCallback: command.checkCallback ? (checking) => checking ? command.checkCallback(checking) : this.trackCommand(command.id, () => command.checkCallback(checking)) : void 0,
+      editorCheckCallback: command.editorCheckCallback ? (checking, editor, context) => checking ? command.editorCheckCallback(checking, editor, context) : this.trackCommand(command.id, () => command.editorCheckCallback(checking, editor, context)) : void 0
+    };
+  }
+  trackCommand(commandId, action) {
+    const startedAt = Date.now();
+    this.info("command.started", { operation: commandId });
+    try {
+      const result = action();
+      if (result && typeof result.then === "function") {
+        return Promise.resolve(result).then(
+          (value) => {
+            this.info("command.completed", { operation: commandId, durationMs: Date.now() - startedAt });
+            return value;
+          },
+          (error) => {
+            this.error("command.failed", { operation: commandId, errorType: safeErrorType(error), durationMs: Date.now() - startedAt });
+            throw error;
+          }
+        );
+      }
+      this.info("command.completed", { operation: commandId, durationMs: Date.now() - startedAt });
+      return result;
+    } catch (error) {
+      this.error("command.failed", { operation: commandId, errorType: safeErrorType(error), durationMs: Date.now() - startedAt });
+      throw error;
+    }
+  }
   record(level, event, detail) {
     var _a2;
-    const entry = { at: (/* @__PURE__ */ new Date()).toISOString(), level, event };
-    if (detail !== void 0) entry.detail = safeDetail(detail).slice(0, 4e3);
+    const safeEvent = /^[a-z0-9][a-z0-9._-]{0,99}$/i.test(event) ? event : "invalid_event";
+    const entry = { at: (/* @__PURE__ */ new Date()).toISOString(), level, event: safeEvent };
+    if (detail !== void 0) entry.detail = safeDetail(detail);
     this.entries.push(entry);
-    if (this.entries.length > this.maxEntries) this.entries.splice(0, this.entries.length - this.maxEntries);
+    if (this.entries.length > this.maxEntries) {
+      const removed = this.entries.length - this.maxEntries;
+      this.entries.splice(0, removed);
+      this.droppedEntries += removed;
+    }
     const method = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
-    method.call(console, `[${this.docs.name}] ${event}`, (_a2 = entry.detail) != null ? _a2 : "");
+    method.call(console, "[" + this.docs.name + "] " + entry.event, (_a2 = entry.detail) != null ? _a2 : "");
   }
   async copyDiagnostics() {
+    this.info("diagnostics.copy_requested", { total: this.entries.length + 1 });
+    const captured = (/* @__PURE__ */ new Date()).toISOString();
+    const snapshot = this.entries.slice();
     const header = [
-      `Plugin: ${this.docs.name}`,
-      `Plugin ID: ${this.plugin.manifest.id}`,
-      `Version: ${this.plugin.manifest.version}`,
-      `Captured: ${(/* @__PURE__ */ new Date()).toISOString()}`,
-      `User agent: ${navigator.userAgent}`,
+      "Plugin debug log",
+      "Log scope: this plugin, since its most recent load",
+      "Plugin: " + this.docs.name,
+      "Plugin ID: " + this.plugin.manifest.id,
+      "Version: " + this.plugin.manifest.version,
+      "Captured: " + captured,
+      "User agent: " + navigator.userAgent,
+      "Events included: " + snapshot.length,
+      "Older events omitted: " + this.droppedEntries,
       ""
     ];
+    const text = header.concat(snapshot.map(
+      (entry) => entry.at + " [" + entry.level.toUpperCase() + "] " + entry.event + (entry.detail ? " \u2014 " + entry.detail : "")
+    )).join("\n");
     try {
-      await navigator.clipboard.writeText(header.concat(this.entries.map(
-        (entry) => `${entry.at} [${entry.level.toUpperCase()}] ${entry.event}${entry.detail ? ` \u2014 ${entry.detail}` : ""}`
-      )).join("\n"));
-      new import_obsidian4.Notice(`${this.docs.name}: debug log copied. Secrets and note contents are not included.`);
+      await navigator.clipboard.writeText(text);
+      this.info("diagnostics.copy_succeeded", { total: snapshot.length });
+      const omitted = this.droppedEntries ? "; " + this.droppedEntries + " older events omitted" : "";
+      new import_obsidian4.Notice(this.docs.name + ": copied " + snapshot.length + " log events" + omitted + ".");
     } catch (error) {
-      this.error("diagnostics.copy_failed", { errorType: error instanceof Error ? error.name : typeof error });
-      new import_obsidian4.Notice(`${this.docs.name}: could not copy the debug log.`);
+      this.error("diagnostics.copy_failed", { errorType: safeErrorType(error) });
+      new import_obsidian4.Notice(this.docs.name + ": could not copy the debug log.");
     }
   }
 };
@@ -1241,7 +1337,7 @@ var TundraPlugin = class extends import_obsidian6.Plugin {
     this.settings = { ...DEFAULT_SETTINGS };
   }
   async onload() {
-    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in settings only if you want a before/after window."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
+    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in settings only if you want a before/after window."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy full debug log"], troubleshooting: ["Use Copy full debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
     this.support.start();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.settings.billing = ensureBillingState(this.settings.billing);
@@ -1333,7 +1429,7 @@ var TundraSettingTab = class extends import_obsidian6.PluginSettingTab {
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
     new import_obsidian6.Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton((b) => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
-    new import_obsidian6.Setting(containerEl).setName("Diagnostics").setDesc("A short in-memory log of workflow events and errors. It excludes note paths, note contents, and credentials.").addButton((button) => button.setButtonText("Copy debug log").onClick(() => void this.plugin.support.copyDiagnostics()));
+    this.plugin.support.addDiagnosticsSetting(containerEl);
     new import_obsidian6.Setting(containerEl).setName("AI request queue").setDesc("View the active request and waiting frontmatter runs, or remove waiting runs.").addButton((button) => button.setButtonText("Show queue").onClick(() => this.plugin.aiQueue.open()));
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => {
