@@ -86,11 +86,13 @@ export async function retryPendingCreditSpends(plugin: TundraPlugin): Promise<vo
 export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> {
   const state = plugin.settings.billing;
   if (!state.billingAccessToken || !state.billingAccountLinked) {
+    plugin.support.warn("billing.entitlement.rejected", { outcome: "account_not_signed_in" });
     new Notice("Tundra: sign in or create a billing account in plugin settings before using AI.", 5000);
     return false;
   }
   await retryPendingCreditSpends(plugin);
   if (plugin.settings.billing.pendingCreditSpends.length > 0) {
+    plugin.support.warn("billing.entitlement.rejected", { outcome: "pending_credit_reconciliation" });
     new Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5000);
     return false;
   }
@@ -106,10 +108,14 @@ export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> 
       state.billingAccessToken = "";
       state.billingAccountLinked = false;
       await plugin.saveSettings();
+      plugin.support.warn("billing.entitlement.rejected", { outcome: "account_session_invalid", httpStatus: response.status });
       new Notice("Tundra: your billing session expired. Sign in again before using AI.", 5000);
       return false;
     }
-    if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
+    if (response.status < 200 || response.status >= 300) {
+      plugin.support.warn("billing.entitlement.rejected", { outcome: "http_error", httpStatus: response.status });
+      throw new Error(`HTTP ${response.status}`);
+    }
     const entitlements = response.json?.data;
     const freeRemaining = Math.max(0, Number(entitlements?.free_usage?.remaining) || 0);
     const paidBalance = Math.max(0, Number(entitlements?.credits?.balance) || 0);
@@ -122,6 +128,7 @@ export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> 
     new Notice("Tundra: today's free allowance is exhausted and no purchased credits remain.", 5000);
     return false;
   } catch {
+    plugin.support.warn("billing.entitlement.rejected", { outcome: "request_failed" });
     new Notice("Tundra: billing could not be verified. No AI request was sent.", 5000);
     return false;
   }

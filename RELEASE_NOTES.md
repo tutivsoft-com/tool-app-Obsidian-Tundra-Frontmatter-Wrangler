@@ -1,5 +1,10 @@
 # Tundra Frontmatter orangler release notes
 
+## 3.6.16 - 2026-09-25
+
+- Synchronized version metadata and the packaged runtime across the source and public release repositories.
+
+
 ## 3.6.15 - 2026-09-25
 
 - Added a live AI request queue with text excerpts, per-run elapsed time, completion status, and a control to clear waiting runs.

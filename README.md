@@ -1,6 +1,6 @@
 # Tundra Frontmatter orangler
 
-Version: `3.6.15`
+Version: `3.6.16`
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. AI runs open a live queue that shows the submitted text excerpt, current target, elapsed seconds, and completion. Overlapping AI runs are serialized, and waiting runs can be cleared while the active request finishes. Before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
 

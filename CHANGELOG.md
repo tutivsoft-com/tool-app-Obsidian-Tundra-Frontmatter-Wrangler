@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.6.16 (2026-09-25)
+
+- Synchronized version metadata and the packaged runtime across the source and public release repositories.
+
+
 ## 3.6.15 (2026-09-25)
 
 - Show AI frontmatter runs in a live queue with the submitted note excerpt, current target, elapsed seconds, and completion time.
