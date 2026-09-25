@@ -79,7 +79,7 @@ npm run check
 npm run build
 ```
 
-The public plugin source and runtime artifacts are mirrored in `publish/`. The built `publish/main.js` is generated and committed as the runtime bundle; Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`.
+The private source repository is the implementation and build source of truth. Obsidian installs `publish/main.js`, `publish/manifest.json`, and `publish/styles.css`. This checkout still includes source-inclusive material from an earlier snapshot; the next curated release should contain only approved public files and assets, not a mirrored plugin source tree.
 
 ## License
 
