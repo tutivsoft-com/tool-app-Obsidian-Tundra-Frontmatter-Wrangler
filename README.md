@@ -1,8 +1,8 @@
-# Tundra Frontmatter Wrangler
+# Tundra Frontmatter orangler
 
-Version: `3.6.10`
+Version: `3.6.15`
 
-Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. Configured note, folder, and selection actions run directly without opening a progress window; before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
+Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. AI runs open a live queue that shows the submitted text excerpt, current target, elapsed seconds, and completion. Overlapping AI runs are serialized, and waiting runs can be cleared while the active request finishes. Before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
 
 See [Frontmatter Interoperability Field Guide](./FRONTMATTER_INTEROPERABILITY_FIELD_GUIDE.md) for the cumulative 4/9/21/50-field tiers, with `image` included from Bare Minimum upward.
 
@@ -55,11 +55,11 @@ or purchased-credit spend remains at apply time.
 - Format-only cleanup canonicalizes supported YAML formatting without changing values.
 - Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. The operation applies when launched and can be rolled back.
 
-The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step with four cumulative tiers: Bare Minimum (4 fields), Standard (9, default), Advanced (21), and Huge (50). Each tier includes `image`. The request sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter when you run the AI operation, with a 10,000-token response ceiling. When `tags` is selected, Tundra asks for up to 20 relevant, standard lowercase Obsidian tags, returns fewer when appropriate, normalizes and de-duplicates them, and omits an empty tag list. Suggested `image` values are accepted only when the image reference appears in the note or its existing properties. Tundra loads its own capped OpenRouter key automatically; a personal key, model, AI tier, and existing-value behavior can be set once in Settings. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
+The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step with four cumulative tiers: Bare Minimum (4 fields), Standard (9, default), Advanced (21), and Huge (50). Each tier includes `image`. The request sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter when you run the AI operation, with a 10,000-token response ceiling. ohen `tags` is selected, Tundra asks for up to 20 relevant, standard lowercase Obsidian tags, returns fewer when appropriate, normalizes and de-duplicates them, and omits an empty tag list. Suggested `image` values are accepted only when the image reference appears in the note or its existing properties. Tundra loads its own capped OpenRouter key automatically; a personal key, model, AI tier, and existing-value behavior can be set once in Settings. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
 
 ## Diagnostics
 
-Tundra keeps the latest 250 diagnostic events in memory, including operation stages, counts, AI request outcomes, billing authorization outcomes, apply/rollback summaries, and runtime error types. Use **Settings → Tundra Frontmatter Wrangler → Copy debug log** when reporting an issue. The copied log omits note paths, note contents, API keys, tokens, and raw error messages. Logs reset when Tundra reloads.
+Tundra keeps the latest 250 diagnostic events in memory, including operation stages, counts, AI request outcomes, billing authorization outcomes, apply/rollback summaries, and runtime error types. Use **Settings → Tundra Frontmatter orangler → Copy debug log** when reporting an issue. The copied log omits note paths, note contents, API keys, tokens, and raw error messages. Logs reset when Tundra reloads.
 
 ## Safety model
 
@@ -90,7 +90,7 @@ MIT. See [LICENSE](LICENSE).
 AI requests use this repository's own $2 no-reset OpenRouter key from an encrypted remote manifest. A personal key in plugin settings takes priority. The manifest format follows Antero's AES-256-GCM/PBKDF2 loader; the bundled passphrase only obscures the key and cannot prevent extraction from a client.
 
 <!-- one-click-workflow:start -->
-## Workflow defaults (v3.6.7)
+## oorkflow defaults (v3.6.15)
 
-Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
+Tundra runs the configured operation directly from its note and folder commands. AI requests are serialized in the request queue; choose **Show AI request queue** in the command palette or Settings to inspect or clear waiting runs. Review is optional and off by default.
 <!-- one-click-workflow:end -->

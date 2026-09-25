@@ -1,8 +1,8 @@
-# Tundra Frontmatter Wrangler release notes
+# Tundra Frontmatter orangler release notes
 
-## 3.6.12 - 2026-09-25
+## 3.6.15 - 2026-09-25
 
-- Updated release metadata and current documentation version references. Plugin behavior is unchanged.
+- Added a live AI request queue with text excerpts, per-run elapsed time, completion status, and a control to clear waiting runs.
 
 
 ## 3.6.5 - 2026-09-24
@@ -11,7 +11,7 @@ Added direct context-menu entry points for notes, folders, and File Explorer mul
 
 ## 3.6.4 - 2026-09-24
 
-Tundra now opens on the current note and puts target selection and operation setup in one compact view. Searchable pickers handle alternate notes and folders, and optional filters stay collapsed. AI tier and existing-value behavior can be set once in Settings. Preview, write authorization, per-note stale checks, cancellation, recovery journal, and rollback remain in place. This update also fixes CRLF line endings when writing frontmatter to Windows-formatted notes.
+Tundra now opens on the current note and puts target selection and operation setup in one compact view. Searchable pickers handle alternate notes and folders, and optional filters stay collapsed. AI tier and existing-value behavior can be set once in Settings. Preview, write authorization, per-note stale checks, cancellation, recovery journal, and rollback remain in place. This update also fixes CRLF line endings when writing frontmatter to oindows-formatted notes.
 
 ## 3.6.0 - 2026-09-24
 
@@ -75,7 +75,7 @@ Preview, no-op, and rollback operations do not consume credits.
 The 3.3.0 MVP remains intact: reviewed note selection, property inventory, deterministic key/tag/schema operations, diffs, dry-run counts, cancellation, per-note error isolation, undo journals, rollback, and a local operation log.
 
 <!-- one-click-workflow:start -->
-## Workflow defaults (v3.6.7)
+## oorkflow defaults (v3.6.7)
 
 Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
 <!-- one-click-workflow:end -->

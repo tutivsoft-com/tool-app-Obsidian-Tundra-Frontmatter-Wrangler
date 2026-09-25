@@ -6,6 +6,7 @@ import { TUNDRA_CREDIT_PACKS, type BillingState } from "./billing-model";
 import { addBillingAccountSettings } from "./constance-account";
 import { PluginSupport } from "./plugin-support";
 import { AI_FIELD_TIERS, AI_TIER_LABELS, DEFAULT_AI_TIER, MAX_AI_RESPONSE_TOKENS, buildAiSystemPrompt, sanitizeAiFrontmatter, type AiFieldTier } from "./ai-frontmatter";
+import { AiRequestQueue, type QueueReporter } from "./ai-request-queue";
 
 interface TundraSettings { billing: BillingState; aiApiKey: string; aiModel: string; aiTier: AiFieldTier; aiConflict: "keep" | "replace"; reviewBeforeApply: boolean; defaultOperation: Operation; lastBatch?: Batch; }
 interface Batch { id: string; createdAt: string; operation: Operation; files: Array<{ path: string; original: string; after?: string }>; summary: { changed: number; skipped: number; failed: number; unchanged: number }; }
@@ -25,6 +26,7 @@ const MAX_AI_NOTE_CHARS = 12000;
 export default class TundraPlugin extends Plugin {
   settings: TundraSettings = { ...DEFAULT_SETTINGS };
   support!: PluginSupport;
+  aiQueue!: AiRequestQueue;
   async onload() {
     this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in settings only if you want a before/after window."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
     this.support.start();
@@ -33,6 +35,7 @@ export default class TundraPlugin extends Plugin {
     this.settings.aiApiKey = typeof this.settings.aiApiKey === "string" ? this.settings.aiApiKey : "";
     this.settings.aiModel = typeof this.settings.aiModel === "string" && this.settings.aiModel.trim() ? this.settings.aiModel : DEFAULT_SETTINGS.aiModel;
     await this.saveSettings();
+    this.aiQueue = new AiRequestQueue(this.app, "Tundra");
     this.support.info("settings.loaded", { operation: this.settings.defaultOperation.kind, reviewEnabled: this.settings.reviewBeforeApply });
     void retryPendingCreditSpends(this);
     resumePendingCheckout(this);
@@ -41,6 +44,7 @@ export default class TundraPlugin extends Plugin {
     this.addCommand({ id: "open-wrangle-current-folder", name: "Open frontmatter wrangler for current folder", checkCallback: (checking) => { const folder = this.app.workspace.getActiveFile()?.parent; if (checking) return !!folder?.path; if (folder) new WranglerModal(this.app, this, { folder }).open(); return true; } });
     this.addCommand({ id: "apply-configured-current-note", name: "Apply configured operation to current note", checkCallback: (checking) => { const file = this.app.workspace.getActiveFile(); if (checking) return !!file; if (file) this.applyConfigured({ file }); return true; } });
     this.addCommand({ id: "apply-configured-current-folder", name: "Apply configured operation to current folder", checkCallback: (checking) => { const folder = this.app.workspace.getActiveFile()?.parent; if (checking) return !!folder?.path; if (folder) this.applyConfigured({ folder }); return true; } });
+    this.addCommand({ id: "show-ai-request-queue", name: "Show AI request queue", callback: () => this.aiQueue.open() });
     this.addRibbonIcon("wrench", "Open frontmatter wrangler", () => new WranglerModal(this.app, this).open());
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => this.addFileMenuItems(menu, file)));
     this.registerEvent(this.app.workspace.on("files-menu", (menu, files) => this.addFilesMenuItems(menu, files)));
@@ -86,6 +90,7 @@ class TundraSettingTab extends PluginSettingTab {
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
     new Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton(b => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
     new Setting(containerEl).setName("Diagnostics").setDesc("A short in-memory log of workflow events and errors. It excludes note paths, note contents, and credentials.").addButton(button => button.setButtonText("Copy debug log").onClick(() => void this.plugin.support.copyDiagnostics()));
+    new Setting(containerEl).setName("AI request queue").setDesc("View the active request and waiting frontmatter runs, or remove waiting runs.").addButton(button => button.setButtonText("Show queue").onClick(() => this.plugin.aiQueue.open()));
 
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => { await syncBalance(this.plugin); }, refresh: () => this.display() });
@@ -137,6 +142,9 @@ class WranglerModal extends Modal {
   private filterValue = "";
   private cancelled = false;
   private opened = false;
+  private queueEnqueued = false;
+  private queueRunning = false;
+  private queueReporter?: QueueReporter;
   private operation: Operation = { ...this.plugin.settings.defaultOperation, tags: [...(this.plugin.settings.defaultOperation.tags ?? [])], order: [...(this.plugin.settings.defaultOperation.order ?? [])], aiFields: [...(this.plugin.settings.defaultOperation.aiFields ?? [])] };
 
   constructor(app: App, private plugin: TundraPlugin, target?: { file?: TFile; folder?: TFolder; files?: TFile[] }, private autoRun = false) {
@@ -293,6 +301,24 @@ class WranglerModal extends Modal {
   }
 
   private async preparePreview() {
+    if (this.operation.kind === "ai-frontmatter" && !this.queueRunning) {
+      if (this.queueEnqueued) return;
+      this.queueEnqueued = true;
+      const targetName = this.targetScope === "note"
+        ? this.selectedFile?.name ?? "selected note"
+        : this.targetScope === "folder" ? this.folder || "selected folder" : this.targetScope;
+      void this.plugin.aiQueue.enqueue(`Frontmatter for ${targetName}`, "", async (report) => {
+        this.queueEnqueued = false;
+        this.queueRunning = true;
+        this.queueReporter = report;
+        report({ label: "Selecting and reading target notes" });
+        try { await this.preparePreview(); }
+        finally { this.queueRunning = false; this.queueReporter = undefined; }
+      }).then((result) => {
+        if (result.status === "cleared") this.queueEnqueued = false;
+      });
+      return;
+    }
     this.plugin.support.info("operation.plan.started", { operation: this.operation.kind, scope: this.targetScope, reviewEnabled: this.plugin.settings.reviewBeforeApply });
     if (this.operation.kind === "ai-frontmatter") {
       const fields = this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]];
@@ -341,11 +367,14 @@ class WranglerModal extends Modal {
     if (this.operation.kind !== "ai-frontmatter") { this.plans = planOperation(notes, this.operation); return; }
     const updates: Record<string, Frontmatter> = {};
     const errors: Record<string, string> = {};
+    let aiRequestIndex = 0;
     for (const note of notes) {
       const parsed = parseFrontmatter(note.content);
       if (/^\uFEFF---\r?\n/.test(note.content)) { errors[note.path] = "A UTF-8 BOM before frontmatter is not supported safely."; continue; }
       if (!parsed.safe) continue;
       const fieldCount = (this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]]).length;
+      aiRequestIndex++;
+      this.queueReporter?.({ label: `Sending ${note.path}`, submittedText: parsed.body.slice(0, MAX_AI_NOTE_CHARS), current: aiRequestIndex, total: notes.length });
       this.plugin.support.info("ai.request.started", { fieldCount, noteChars: parsed.body.length });
       try {
         updates[note.path] = await requestAiFrontmatter(parsed.body, parsed.frontmatter, this.operation.aiFields ?? [...AI_FIELD_TIERS[this.plugin.settings.aiTier]], this.plugin.settings);

@@ -1,8 +1,18 @@
 # Changelog
 
-## 3.6.12 (2026-09-25)
+## 3.6.15 (2026-09-25)
 
-- Synchronized the release version across release metadata and current product documentation; plugin behavior is unchanged.
+- Show AI frontmatter runs in a live queue with the submitted note excerpt, current target, elapsed seconds, and completion time.
+- Serialize overlapping AI runs and let users clear waiting runs while the active request finishes.
+
+## 3.6.12 (2026-09-24)
+
+- Simplify account creation to report registration success or failure without linking the installation or verifying the account in the same action.
+
+## 3.6.11 (2026-09-24)
+
+- Support email verification during billing account registration and link the installation after verification.
+- Record privacy-safe entitlement failure reasons in the debug log so sign-in, server, and network failures can be distinguished.
 
 ## 3.6.10 (2026-09-24)
 
