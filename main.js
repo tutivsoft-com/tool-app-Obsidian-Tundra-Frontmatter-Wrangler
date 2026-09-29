@@ -414,6 +414,7 @@ async function completeBillingSignIn(adapter, email, token) {
   adapter.state.billingEmail = email;
   adapter.state.billingAccessToken = token;
   adapter.state.billingAccountLinked = true;
+  adapter.state.billingRegistrationPending = false;
   await adapter.persist();
   await adapter.syncBalance();
 }
@@ -431,7 +432,10 @@ async function claimAccountFreeUsage(state, appId, installationId, eventId, amou
     if (response.status === 402) return { kind: "insufficient" };
     if (response.status === 401 || response.status === 403 || response.status === 404) return { kind: "auth-required" };
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
-    return { kind: "ok", remaining: Math.max(0, Number((_b2 = (_a2 = response.json) == null ? void 0 : _a2.data) == null ? void 0 : _b2.remaining) || 0) };
+    const remaining = Math.max(0, Number((_b2 = (_a2 = response.json) == null ? void 0 : _a2.data) == null ? void 0 : _b2.remaining) || 0);
+    new import_obsidian2.Notice(`Credit balance before this task: ${(remaining + amount).toLocaleString()} free credits.`);
+    new import_obsidian2.Notice(`Task used ${amount.toLocaleString()} credits. Balance remaining: ${remaining.toLocaleString()} free credits.`);
+    return { kind: "ok", remaining };
   } catch (error) {
     console.error("Constance account free-usage claim failed", error);
     return { kind: "error" };
@@ -452,7 +456,11 @@ async function spendAccountCredits(state, appId, installationId, eventId, amount
     if (response.status === 401 || response.status === 403 || response.status === 404) return { kind: "auth-required" };
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
     const balance = Number((_c2 = (_b2 = (_a2 = response.json) == null ? void 0 : _a2.data) == null ? void 0 : _b2.credits) == null ? void 0 : _c2.balance);
-    return Number.isFinite(balance) ? { kind: "ok", balance: Math.max(0, balance) } : { kind: "error" };
+    if (!Number.isFinite(balance)) return { kind: "error" };
+    const remaining = Math.max(0, balance);
+    new import_obsidian2.Notice(`Credit balance before this task: ${(remaining + amount).toLocaleString()} purchased credits.`);
+    new import_obsidian2.Notice(`Task used ${amount.toLocaleString()} credits. Balance remaining: ${remaining.toLocaleString()} purchased credits.`);
+    return { kind: "ok", balance: remaining };
   } catch (error) {
     console.error("Constance authenticated credit spend failed", error);
     return { kind: "error" };
@@ -460,35 +468,49 @@ async function spendAccountCredits(state, appId, installationId, eventId, amount
 }
 function addBillingAccountSettings(containerEl, adapter) {
   let password = "";
-  new import_obsidian2.Setting(containerEl).setName("Billing account email").setDesc("Used for sign-in, purchase restore, and checkout. Reinstalling no longer creates a new free allowance.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).onChange(async (value) => {
+  const section = containerEl.createDiv({ cls: "constance-account-billing-section" });
+  section.createEl("h3", { text: "Account and billing" });
+  const state = adapter.state;
+  const numericBalances = Object.entries(state).filter(([key, value]) => /(?:credit|balance|remaining)/i.test(key) && typeof value === "number").map(([key, value]) => `${key.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()}: ${Number(value).toLocaleString()}`);
+  const accountStatus = adapter.state.billingAccountLinked ? `Signed in as ${adapter.state.billingEmail || "your account"}` : state.billingRegistrationPending ? `Registered as ${adapter.state.billingEmail} but not signed in. Check your email, click the confirmation link, then sign in here.` : "Not signed in.";
+  section.createEl("p", {
+    cls: "constance-account-status",
+    text: numericBalances.length ? `${accountStatus} Balance \u2014 ${numericBalances.join("; ")}` : accountStatus
+  });
+  new import_obsidian2.Setting(section).setName("Email").setDesc("Used to register, sign in, restore purchases, and open checkout.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).onChange(async (value) => {
     adapter.state.billingEmail = value.trim();
     await adapter.persist();
   }));
-  new import_obsidian2.Setting(containerEl).setName("Billing account password").setDesc("Used only for this sign-in request. The password is never saved by the plugin.").addText((text) => {
+  new import_obsidian2.Setting(section).setName("Password").setDesc("Used only for this request. The plugin never saves your password.").addText((text) => {
     text.inputEl.type = "password";
     text.setPlaceholder("At least 8 characters").onChange((value) => {
       password = value;
     });
   });
-  const status = adapter.state.billingAccountLinked ? "Signed in and linked" : "Not signed in";
-  new import_obsidian2.Setting(containerEl).setName("Billing account").setDesc(`${status}. The saved bearer session can restore purchases; your password is not stored.`).addButton((button) => button.setButtonText("Sign in").onClick(async () => {
+  new import_obsidian2.Setting(section).setName("Account").setDesc(accountStatus).addButton((button) => button.setButtonText("Register").setDisabled(adapter.state.billingAccountLinked).onClick(async () => {
+    var _a2, _b2;
+    button.setDisabled(true);
+    try {
+      await registerBillingAccount(adapter, password);
+      adapter.state.billingRegistrationPending = true;
+      await adapter.persist();
+      new import_obsidian2.Notice("Registered but not logged in. Check your email, click the confirmation link, then sign in here.");
+      (_a2 = adapter.refresh) == null ? void 0 : _a2.call(adapter);
+    } catch (error) {
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Registration failed.");
+      (_b2 = adapter.refresh) == null ? void 0 : _b2.call(adapter);
+    } finally {
+      button.setDisabled(false);
+    }
+  })).addButton((button) => button.setButtonText("Sign in").setDisabled(adapter.state.billingAccountLinked).onClick(async () => {
     var _a2;
     button.setDisabled(true);
     try {
       await signInBillingAccount(adapter, password);
-      new import_obsidian2.Notice("Billing account signed in and this installation was linked.");
+      new import_obsidian2.Notice(`Signed in as ${adapter.state.billingEmail}.`);
       (_a2 = adapter.refresh) == null ? void 0 : _a2.call(adapter);
     } catch (error) {
-      new import_obsidian2.Notice(error instanceof Error ? error.message : "Billing sign-in failed.");
-    } finally {
-      button.setDisabled(false);
-    }
-  })).addButton((button) => button.setButtonText("Create account").onClick(async () => {
-    button.setDisabled(true);
-    try {
-      await registerBillingAccount(adapter, password);
-    } catch (error) {
-      new import_obsidian2.Notice(error instanceof Error ? error.message : "Billing account creation failed.");
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Sign-in failed.");
     } finally {
       button.setDisabled(false);
     }
@@ -496,10 +518,24 @@ function addBillingAccountSettings(containerEl, adapter) {
     var _a2;
     adapter.state.billingAccessToken = "";
     adapter.state.billingAccountLinked = false;
+    state.billingRegistrationPending = false;
     await adapter.persist();
-    new import_obsidian2.Notice("Billing account signed out on this installation.");
+    new import_obsidian2.Notice("Signed out.");
     (_a2 = adapter.refresh) == null ? void 0 : _a2.call(adapter);
   }));
+  const firstHeading = containerEl.querySelector(":scope > h1, :scope > h2");
+  if (firstHeading == null ? void 0 : firstHeading.nextSibling) containerEl.insertBefore(section, firstHeading.nextSibling);
+  else containerEl.prepend(section);
+  queueMicrotask(() => {
+    const candidates = Array.from(containerEl.querySelectorAll(":scope > .setting-item"));
+    for (const item of candidates) {
+      const label = item.textContent || "";
+      if (/buy|checkout|refresh balance|sync balance|credit pack/i.test(label)) section.appendChild(item);
+    }
+    for (const summary of Array.from(containerEl.querySelectorAll('[class*="credit"][class*="summary"], [class*="balance"][class*="summary"]'))) {
+      if (!section.contains(summary)) section.appendChild(summary);
+    }
+  });
 }
 
 // billing.ts
