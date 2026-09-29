@@ -9,7 +9,7 @@ import {
   TUNDRA_CREDIT_PACKS,
   type BillingState,
 } from "./billing-model";
-import { claimAccountFreeUsage, spendAccountCredits } from "./constance-account";
+import { claimAccountFreeUsage, spendAccountCredits, requestAuthenticatedBilling, clearBillingSession } from "./constance-account";
 export { defaultBillingState, FREE_USES_PER_DAY } from "./billing-model";
 
 export const CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
@@ -56,10 +56,9 @@ function readBalance(response: { json?: any }): number {
 
 async function spendConstanceCredit(plugin: TundraPlugin, stableEventId: string): Promise<SpendResult> {
   const state = plugin.settings.billing;
-  const result = await spendAccountCredits(state, CONSTANCE_APP_ID, state.deviceId, stableEventId, 1);
+  const result = await spendAccountCredits(state, () => plugin.saveSettings(), CONSTANCE_APP_ID, state.deviceId, stableEventId, 1);
   if (result.kind === "auth-required") {
-    state.billingAccessToken = "";
-    state.billingAccountLinked = false;
+    clearBillingSession(state);
     await plugin.saveSettings();
     new Notice("Tundra: your billing session expired. Sign in again.", 5000);
     return { kind: "error" };
@@ -85,7 +84,7 @@ export async function retryPendingCreditSpends(plugin: TundraPlugin): Promise<vo
 /** Read the canonical allowance before making a billable OpenRouter request. */
 export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> {
   const state = plugin.settings.billing;
-  if (!state.billingAccessToken || !state.billingAccountLinked) {
+  if ((!state.billingAccessToken && !state.billingRefreshToken) || !state.billingAccountLinked) {
     plugin.support.warn("billing.entitlement.rejected", { outcome: "account_not_signed_in" });
     new Notice("Tundra: sign in or create a billing account in plugin settings before using AI.", 5000);
     return false;
@@ -98,15 +97,12 @@ export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> 
   }
   try {
     const query = new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId });
-    const response = await requestUrl({
+    const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
       url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${query.toString()}`,
       method: "GET",
-      headers: { Authorization: `Bearer ${state.billingAccessToken}` },
-      throw: false,
     });
     if (response.status === 401 || response.status === 403 || response.status === 404) {
-      state.billingAccessToken = "";
-      state.billingAccountLinked = false;
+      clearBillingSession(state);
       await plugin.saveSettings();
       plugin.support.warn("billing.entitlement.rejected", { outcome: "account_session_invalid", httpStatus: response.status });
       new Notice("Tundra: your billing session expired. Sign in again before using AI.", 5000);
@@ -138,17 +134,14 @@ async function pollCheckoutSettlement(plugin: TundraPlugin, checkoutId: string):
   for (let attempt = 0; attempt < 12; attempt++) {
     await wait(5000);
     const state = plugin.settings.billing;
-    if (!state.pendingCheckout || state.pendingCheckout.checkoutId !== checkoutId || !state.billingAccessToken) return;
+    if (!state.pendingCheckout || state.pendingCheckout.checkoutId !== checkoutId || (!state.billingAccessToken && !state.billingRefreshToken)) return;
     try {
-      const response = await requestUrl({
+      const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
         url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkouts/${encodeURIComponent(checkoutId)}`,
         method: "GET",
-        headers: { Authorization: `Bearer ${state.billingAccessToken}` },
-        throw: false,
       });
       if (response.status === 401 || response.status === 403) {
-        state.billingAccessToken = "";
-        state.billingAccountLinked = false;
+        clearBillingSession(state);
         state.pendingCheckout = null;
         await plugin.saveSettings();
         return;
@@ -170,7 +163,7 @@ async function pollCheckoutSettlement(plugin: TundraPlugin, checkoutId: string):
 
 async function startCheckout(plugin: TundraPlugin, planCode: string): Promise<void> {
   const state = plugin.settings.billing;
-  if (!state.billingAccessToken || !state.billingAccountLinked) {
+  if ((!state.billingAccessToken && !state.billingRefreshToken) || !state.billingAccountLinked) {
     new Notice("Tundra: sign in or create a billing account in plugin settings before buying credits.", 5000);
     return;
   }
@@ -179,20 +172,17 @@ async function startCheckout(plugin: TundraPlugin, planCode: string): Promise<vo
     : { idempotencyKey: generateIdempotencyKey(), planCode };
   state.pendingCheckout = pending;
   await plugin.saveSettings();
-  const response = await requestUrl({
+  const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
     url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkout`,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${state.billingAccessToken}`,
       "Idempotency-Key": pending.idempotencyKey,
     },
     body: JSON.stringify({ app_id: CONSTANCE_APP_ID, plan_code: planCode, installation_id: state.deviceId, quantity: 1 }),
-    throw: false,
   });
   if (response.status === 401 || response.status === 403) {
-    state.billingAccessToken = "";
-    state.billingAccountLinked = false;
+    clearBillingSession(state);
     state.pendingCheckout = null;
     await plugin.saveSettings();
     new Notice("Tundra: your billing session expired. Sign in again.", 5000);
@@ -223,7 +213,7 @@ export function resumePendingCheckout(plugin: TundraPlugin): void {
 }
 
 export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation | null> {
-  if (!plugin.settings.billing.billingAccessToken || !plugin.settings.billing.billingAccountLinked) {
+  if ((!plugin.settings.billing.billingAccessToken && !plugin.settings.billing.billingRefreshToken) || !plugin.settings.billing.billingAccountLinked) {
     new Notice("Tundra: sign in or create a billing account in plugin settings before applying changes.", 5000);
     return null;
   }
@@ -238,12 +228,12 @@ export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation |
   plugin.settings.billing = claim.state;
 
   if (claim.source === "free") {
-    const free = await claimAccountFreeUsage(current, CONSTANCE_APP_ID, current.deviceId, `free_${generateEventId()}`, 1);
+    plugin.settings.billing = current;
+    const free = await claimAccountFreeUsage(current, () => plugin.saveSettings(), CONSTANCE_APP_ID, current.deviceId, `free_${generateEventId()}`, 1);
     if (free.kind !== "ok") {
       plugin.settings.billing = current;
       if (free.kind === "auth-required") {
-        plugin.settings.billing.billingAccessToken = "";
-        plugin.settings.billing.billingAccountLinked = false;
+        clearBillingSession(plugin.settings.billing);
       }
       await plugin.saveSettings();
       new Notice(free.kind === "insufficient" ? "Tundra: today's account free allowance is exhausted." : "Tundra: the account allowance could not be verified.", 5000);
@@ -310,16 +300,14 @@ export function isBillableApply(changedCount: number): boolean {
 export async function syncBalance(plugin: TundraPlugin): Promise<SyncResult> {
   plugin.settings.billing = ensureBillingState(plugin.settings.billing);
   const state = plugin.settings.billing;
-  if (!state.billingAccessToken || !state.billingAccountLinked) return { kind: "error" };
+  if ((!state.billingAccessToken && !state.billingRefreshToken) || !state.billingAccountLinked) return { kind: "error" };
   try {
-    const response = await requestUrl({
+    const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
       url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId }).toString()}`,
-      method: "GET", throw: false,
-      headers: { Authorization: `Bearer ${state.billingAccessToken}` },
+      method: "GET",
     });
     if (response.status === 401 || response.status === 403 || response.status === 404) {
-      state.billingAccessToken = "";
-      state.billingAccountLinked = false;
+      clearBillingSession(state);
       await plugin.saveSettings();
       return { kind: "error" };
     }

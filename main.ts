@@ -28,7 +28,7 @@ export default class TundraPlugin extends Plugin {
   support!: PluginSupport;
   aiQueue!: AiRequestQueue;
   async onload() {
-    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in settings only if you want a before/after window."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy debug log"], troubleshooting: ["Use Copy debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
+    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in settings only if you want a before/after window."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy full debug log"], troubleshooting: ["Use Copy full debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
     this.support.start();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.settings.billing = ensureBillingState(this.settings.billing);
@@ -89,7 +89,7 @@ class TundraSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
     new Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton(b => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
-    new Setting(containerEl).setName("Diagnostics").setDesc("A short in-memory log of workflow events and errors. It excludes note paths, note contents, and credentials.").addButton(button => button.setButtonText("Copy debug log").onClick(() => void this.plugin.support.copyDiagnostics()));
+    this.plugin.support.addDiagnosticsSetting(containerEl);
     new Setting(containerEl).setName("AI request queue").setDesc("View the active request and waiting frontmatter runs, or remove waiting runs.").addButton(button => button.setButtonText("Show queue").onClick(() => this.plugin.aiQueue.open()));
 
     const billing = this.plugin.settings.billing;

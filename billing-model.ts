@@ -10,6 +10,8 @@ export interface BillingState {
   deviceId: string;
   billingEmail: string;
   billingAccessToken: string;
+  billingRefreshToken: string;
+  billingAccessExpiresAt: number;
   billingAccountLinked: boolean;
   purchasedCredits: number;
   freeUsageDate: string;
@@ -32,6 +34,8 @@ export function defaultBillingState(): BillingState {
     deviceId: "",
     billingEmail: "",
     billingAccessToken: "",
+    billingRefreshToken: "",
+    billingAccessExpiresAt: 0,
     billingAccountLinked: false,
     purchasedCredits: 0,
     freeUsageDate: "",
@@ -49,6 +53,8 @@ export function normalizeBillingState(state: Partial<BillingState> | undefined, 
   }
   next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
   next.billingAccessToken = typeof next.billingAccessToken === "string" ? next.billingAccessToken : "";
+  next.billingRefreshToken = typeof next.billingRefreshToken === "string" ? next.billingRefreshToken : "";
+  next.billingAccessExpiresAt = Number.isFinite(Number(next.billingAccessExpiresAt)) ? Number(next.billingAccessExpiresAt) : 0;
   next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken);
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set((next.pendingCreditSpends ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];

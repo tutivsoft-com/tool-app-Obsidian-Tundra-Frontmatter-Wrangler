@@ -1,4 +1,22 @@
-# Tundra Frontmatter orangler release notes
+# Tundra Frontmatter Wrangler release notes
+
+## 3.6.26 — Billing session recovery
+
+- Rotate and persist Constance refresh tokens before access expiry and after an unauthorized billing response.
+- Revoke the refresh session on sign out and clear all locally stored account tokens.
+- Offer the central password reset page from account settings.
+
+
+## 3.6.24 — Account and credit clarity
+
+- Moved account and billing controls to the top of settings.
+- Simplified account controls to email, password, Register, Sign in, Sign out, balance refresh, and purchase buttons.
+- Registration now explains that the user must confirm the email link and then sign in.
+- Credit balances stay visible, and metered work reports usage and the remaining balance.
+
+## 3.6.19 - 2026-09-25
+
+- Clarified the full debug log command name and corrected the product name in user-facing documentation. Logging behavior is unchanged.
 
 ## 3.6.16 - 2026-09-25
 
@@ -80,7 +98,7 @@ Preview, no-op, and rollback operations do not consume credits.
 The 3.3.0 MVP remains intact: reviewed note selection, property inventory, deterministic key/tag/schema operations, diffs, dry-run counts, cancellation, per-note error isolation, undo journals, rollback, and a local operation log.
 
 <!-- one-click-workflow:start -->
-## oorkflow defaults (v3.6.7)
+## Workflow defaults (v3.6.7)
 
 Tundra runs the configured operation directly from its note and folder commands. Choose the default operation in Settings; review is optional and off by default.
 <!-- one-click-workflow:end -->

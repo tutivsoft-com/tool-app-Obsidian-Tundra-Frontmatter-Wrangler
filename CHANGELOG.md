@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.6.26 — Billing session recovery
+
+- Rotate and persist Constance refresh tokens before access expiry and after an unauthorized billing response.
+- Revoke the refresh session on sign out and clear all locally stored account tokens.
+- Offer the central password reset page from account settings.
+
+
+## 3.6.24 — Account and credit clarity
+
+- Moved account and billing controls to the top of settings.
+- Simplified account controls to email, password, Register, Sign in, Sign out, balance refresh, and purchase buttons.
+- Registration now explains that the user must confirm the email link and then sign in.
+- Credit balances stay visible, and metered work reports usage and the remaining balance.
+
+## 3.6.19 (2026-09-25)
+
+- Clarified the full debug log action name in the command palette and help text; logging behavior is unchanged.
+- Corrected the Tundra product name in user-facing documentation. No other runtime behavior changed.
+
+## 3.6.18 (2026-09-25)
+
+- Updated app version metadata.
+
+## 3.6.17 (2026-09-25)
+
+- Added privacy-safe, copyable session diagnostics in settings and the command palette, with command and runtime error logging.
+
 ## 3.6.16 (2026-09-25)
 
 - Synchronized version metadata and the packaged runtime across the source and public release repositories.
