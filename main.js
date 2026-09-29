@@ -439,7 +439,7 @@ async function registerBillingAccount(adapter, password) {
   var _a2;
   const email = adapter.state.billingEmail.trim().toLowerCase();
   if (!email || !email.includes("@")) throw new Error("Enter a valid billing email.");
-  if (password.length < 8) throw new Error("Password must contain at least 8 characters.");
+  if(Array.from(password).length<8||Array.from(password).length>128)throw new Error("Password must be between 8 and 128 characters.");
   if (!adapter.installationId) throw new Error("The plugin installation ID is not ready.");
   const response = await (0, import_obsidian2.requestUrl)({
     url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/register`,
@@ -480,7 +480,7 @@ async function linkInstallation(adapter, token) {
 async function signInBillingAccount(adapter, password) {
   const email = adapter.state.billingEmail.trim().toLowerCase();
   if (!email || !email.includes("@")) throw new Error("Enter a valid billing email.");
-  if (password.length < 8) throw new Error("Password must contain at least 8 characters.");
+  if(Array.from(password).length<8||Array.from(password).length>128)throw new Error("Password must be between 8 and 128 characters.");
   if (!adapter.installationId) throw new Error("The plugin installation ID is not ready.");
   const tokens = await authenticate(email, password);
   await completeBillingSignIn(adapter, email, tokens);
@@ -553,13 +553,13 @@ function addBillingAccountSettings(containerEl, adapter) {
     cls: "constance-account-status",
     text: numericBalances.length ? `${accountStatus} Balance \u2014 ${numericBalances.join("; ")}` : accountStatus
   });
-  new import_obsidian2.Setting(section).setName("Email").setDesc("Used to register, sign in, restore purchases, and open checkout.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).onChange(async (value) => {
+  new import_obsidian2.Setting(section).setName("Email").setDesc("Used to register, sign in, restore purchases, and open checkout.").addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).setDisabled(adapter.state.billingAccountLinked).onChange(async (value) => {
     adapter.state.billingEmail = value.trim();
     await adapter.persist();
   }));
   new import_obsidian2.Setting(section).setName("Password").setDesc("Used only for this request. The plugin never saves your password.").addText((text) => {
-    text.inputEl.type = "password";
-    text.setPlaceholder("At least 8 characters").onChange((value) => {
+    text.inputEl.type = "password",text.inputEl.maxLength=256;
+    text.setPlaceholder("8 to 128 characters").onChange((value) => {
       password = value;
     });
   });
