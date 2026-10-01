@@ -1,10 +1,10 @@
 # Tundra Frontmatter Wrangler
 
-Version: `3.6.24`
+Public candidate manifest: `3.6.26` (latest completed Community release: `3.6.24`; candidate is not published)
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. AI runs open a live queue that shows the submitted text excerpt, current target, elapsed seconds, and completion. Overlapping AI runs are serialized, and waiting runs can be cleared while the active request finishes. Before/after review is off by default and can be enabled in Settings. Tundra keeps a rollback journal.
 
-See [Frontmatter Interoperability Field Guide](./FRONTMATTER_INTEROPERABILITY_FIELD_GUIDE.md) for the cumulative 4/9/21/50-field tiers, with `image` included from Bare Minimum upward.
+The AI field tiers are cumulative: Bare Minimum (4), Standard (9), Advanced (21), and Huge (50); every tier includes `image`.
 
 ## MVP workflow
 
@@ -21,24 +21,20 @@ For a one-click run after setup, choose a **Default operation** and its values i
 
 ## Billing
 
-Tundra includes three free non-empty apply batches per local calendar day. After
-those are used, each non-empty apply batch authorizes one purchased
-credit. Previewing, planning a no-op, and rolling back never consume credits.
-Tundra checks that at least one previewed change is still applicable before
-claiming a use. A later write failure can still consume a free use because the
-billing service has no free-claim refund operation.
+Tundra provides five lifetime free non-empty apply batches per account, verified
+by Constance; the allowance does not refill daily. After that allowance,
+server-authorized purchased credits are required. Preview, no-op planning, and
+rollback do not consume credits. A failed local write does not claim a free use;
+an uncertain outcome retains its event for reconciliation.
 
-Purchased credits are one-time packs: $1 for 100 credits or $10 for 1,000
-credits. The settings tab stores a billing email for the receipt, shows the
-local mirror of the purchased balance, provides a manual balance sync, and
-opens Constance's authenticated checkout using the catalog plan codes
-`one_time` for $1/100 and `standard` for $10/1,000; Constance resolves the current price IDs server-side and
-the plugin polls checkout settlement before refreshing the balance.
-
-Billing uses Constance's authenticated account endpoints with the unique
-`tundra-frontmatter-wrangler` app ID. A random per-install device ID is stored
-in the plugin's local settings and linked to the billing account; no signing
-secret or credential is embedded in the plugin.
+Purchases use Constance's authenticated V11 catalog with app ID
+`tundra-frontmatter-wrangler` and a random per-install identifier linked to the
+account. Prices and pack details appear only when the server returns a
+configured active price and product; unavailable rows disable checkout. A
+read-only check on 2026-10-02 found all four Tundra V11 pack rows unavailable
+(`Pack price not provisioned`). Existing legacy Paddle offers are separate and
+are not automatically reused by V11. No current price or pack amount is
+asserted until approved catalog mapping is complete.
 
 Before an AI request, Tundra reads the account's current free allowance and
 purchased balance. If billing cannot be verified or neither has an available
@@ -53,9 +49,9 @@ or purchased-credit spend remains at apply time.
 - Normalize tags only with an exact supported rule selected by the user: `lowercase`, `spaces to hyphens`, or `slash separators`. Unknown rules are rejected; there is no hidden spelling conversion.
 - Reorder a preferred top-level schema with move-up/move-down controls. Unknown keys retain their existing relative order and can be placed before or after the preferred keys.
 - Format-only cleanup canonicalizes supported YAML formatting without changing values.
-- Generate or update selected top-level properties with OpenRouter AI. Existing values are kept by default, or can be replaced explicitly. The operation applies when launched and can be rolled back.
+- Generate or update selected top-level properties with TutivSoft's managed AI service. Existing values are kept by default, or can be replaced explicitly. The operation requires full-result authorization before applying and can be rolled back; no personal provider key is required or accepted.
 
-The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step with four cumulative tiers: Bare Minimum (4 fields), Standard (9, default), Advanced (21), and Huge (50). Each tier includes `image`. The request sends each selected note's body (up to 12,000 characters) and existing top-level properties to OpenRouter when you run the AI operation, with a 10,000-token response ceiling. When `tags` is selected, Tundra asks for up to 20 relevant, standard lowercase Obsidian tags, returns fewer when appropriate, normalizes and de-duplicates them, and omits an empty tag list. Suggested `image` values are accepted only when the image reference appears in the note or its existing properties. Tundra loads its own capped OpenRouter key automatically; a personal key, model, AI tier, and existing-value behavior can be set once in Settings. The planning, preview, apply journal, and rollback run locally; Constance is used only for optional balance synchronization and paid batch authorization.
+The MVP is limited to top-level properties. Nested schema paths, conditional transforms, and scheduling are future work. AI generation is an optional proposal step with four cumulative tiers: Bare Minimum (4 fields), Standard (9, default), Advanced (21), and Huge (50). Each tier includes `image`. AI requests run through TutivSoft's managed service; Tundra does not require or accept a personal provider key. When `tags` is selected, Tundra asks for up to 20 relevant standard lowercase Obsidian tags, returns fewer when appropriate, normalizes and de-duplicates them, and omits an empty tag list. Suggested `image` values are accepted only when the image reference appears in the note or its existing properties. The planning, preview, apply journal, and rollback run locally; Constance provides managed AI, account authorization, balance synchronization, and configured checkout when V11 catalog mappings are available.
 
 ## Diagnostics
 
@@ -69,7 +65,7 @@ Comments, nested YAML, and other constructs outside the conservative top-level p
 
 Notes with a leading UTF-8 BOM and frontmatter the parser cannot safely represent are skipped. YAML closing markers must occupy a complete line; delimiter-like text in the note body is preserved. Prototype-named properties such as `__proto__` are retained as ordinary frontmatter keys.
 
-The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Billing stores only the device ID, checkout email, daily free-use counter, and purchased-credit mirror.
+The journal and the last 20 operation summaries are stored in the plugin's local Obsidian data. Billing stores the device ID, checkout email, lifetime free-use balance, purchased-credit mirror, account session, and pending operation identifiers needed for recovery.
 
 ## Development
 
@@ -85,12 +81,13 @@ The root TypeScript tree is the source of truth and `publish/` is private build 
 
 MIT. See [LICENSE](LICENSE).
 
-## OpenRouter key
+## Managed AI
 
-AI requests use this repository's own $2 no-reset OpenRouter key from an encrypted remote manifest. A personal key in plugin settings takes priority. The manifest format follows Antero's AES-256-GCM/PBKDF2 loader; the bundled passphrase only obscures the key and cannot prevent extraction from a client.
+AI generation runs through TutivSoft's managed service. Tundra does not require
+or accept a personal OpenRouter key.
 
 <!-- one-click-workflow:start -->
-## Workflow defaults (v3.6.15)
+## Workflow defaults (v3.6.28)
 
 Tundra runs the configured operation directly from its note and folder commands. AI requests are serialized in the request queue; choose **Show AI request queue** in the command palette or Settings to inspect or clear waiting runs. Review is optional and off by default.
 <!-- one-click-workflow:end -->
@@ -99,4 +96,4 @@ Tundra runs the configured operation directly from its note and folder commands.
 
 Account and billing controls appear at the top of settings. Register with an email and password, confirm the link sent by email, then return and sign in. The settings page shows the current balance and provides balance refresh, sign-out, and purchase controls. Metered actions show the available balance and report the amount used with the remaining balance when the action completes.
 
-Current version: 3.6.26.
+Current private-source version is `3.6.28`; the public candidate manifest remains `3.6.26` until the approved billing mapping and canonical release gates are complete.
