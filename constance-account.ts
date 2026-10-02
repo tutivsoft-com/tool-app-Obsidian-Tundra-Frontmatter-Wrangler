@@ -50,35 +50,38 @@ function readTokens(json: any): AuthTokens {
   return { accessToken, refreshToken, expiresAt: Date.now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 900) * 1000 };
 }
 
-export async function refreshBillingSession(state: ConstanceAccountState, persist: () => Promise<void>): Promise<boolean> {
-  if (!state.billingRefreshToken) return false;
-  let response;
-  try {
-    response = await requestUrl({
-      url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/refresh`, method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: state.billingRefreshToken }), throw: false,
-    });
-  } catch { return false; }
-  if (response.status === 401 || response.status === 403) {
-    clearBillingSession(state);
-    await persist();
-    return false;
-  }
-  if (response.status < 200 || response.status >= 300) return false;
-  try {
-    const tokens = readTokens(response.json);
-    state.billingAccessToken = tokens.accessToken;
-    state.billingRefreshToken = tokens.refreshToken;
-    state.billingAccessExpiresAt = tokens.expiresAt;
-    await persist();
-    return true;
-  } catch {
-    clearBillingSession(state);
-    await persist();
-    return false;
-  }
+const billingRefreshes = new WeakMap<ConstanceAccountState, Promise<boolean>>();
+
+export async function refreshBillingSession(state: ConstanceAccountState, persist?: () => Promise<void>): Promise<boolean> {
+  const pending = billingRefreshes.get(state);
+  if (pending) { const ok = await pending; if (ok) await persist?.(); return ok; }
+  const original = state.billingRefreshToken;
+  if (!original) return false;
+  const operation = (async () => {
+    try {
+      const response = await requestUrl({
+        url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/refresh`, method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: original }), throw: false,
+      });
+      if (state.billingRefreshToken !== original) return false;
+      if (response.status === 401 || response.status === 403) {
+        state.billingAccessToken = ""; state.billingRefreshToken = ""; state.billingAccountLinked = false;
+        await persist?.(); return false;
+      }
+      if (response.status < 200 || response.status >= 300) return false;
+      const access = String(response.json?.access_token || "");
+      const refresh = String(response.json?.refresh_token || "");
+      if (!access || !refresh) return false;
+      state.billingAccessToken = access; state.billingRefreshToken = refresh;
+      state.billingAccessExpiresAt = Date.now() + (Number(response.json?.expires_in) || 900) * 1000;
+      await persist?.(); return true;
+    } catch { return false; }
+  })();
+  billingRefreshes.set(state, operation);
+  try { return await operation; } finally { billingRefreshes.delete(state); }
 }
+
 
 export async function requestAuthenticatedBilling(
   state: ConstanceAccountState, persist: () => Promise<void>,
@@ -109,7 +112,8 @@ export async function signOutBillingAccount(adapter: ConstanceAccountAdapter): P
 }
 
 function errorDetail(response: { json?: any; text?: string }, fallback: string): string {
-  return String(response.json?.detail || response.json?.message || response.text || fallback);
+  if (response.json?.detail?.code === "invalid_credentials") return "Incorrect password. Use Forgot password? to reset it.";
+  return String(response.json?.detail?.message || response.json?.detail || response.json?.message || fallback);
 }
 
 async function authenticate(
@@ -117,7 +121,7 @@ async function authenticate(
   password: string,
 ): Promise<AuthTokens> {
   const response = await requestUrl({
-    url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/login`,
+    url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/auth/connect`,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -126,6 +130,7 @@ async function authenticate(
   if (response.status < 200 || response.status >= 300) {
     throw new Error(errorDetail(response, `Billing login failed (HTTP ${response.status})`));
   }
+  if (response.json?.verification_required) throw Object.assign(new Error("Email verification required. Check your email, then Connect again."), { verificationRequired: true });
   return readTokens(response.json);
 }
 
@@ -180,7 +185,17 @@ export async function signInBillingAccount(
   if (!email || !email.includes("@")) throw new Error("Enter a valid billing email.");
   if (Array.from(password).length < 8 || Array.from(password).length > 128) throw new Error("Password must be between 8 and 128 characters.");
   if (!adapter.installationId) throw new Error("The plugin installation ID is not ready.");
-  const tokens = await authenticate(email, password);
+  const journalState = adapter.state as ConstanceAccountState & Record<string, any>;
+  if (journalState.pendingBillingOwnerEmail && journalState.pendingBillingOwnerEmail !== email) throw new Error(`Connect ${journalState.pendingBillingOwnerEmail} to recover pending billing first.`);
+  let tokens: AuthTokens;
+  try { tokens = await authenticate(email, password); }
+  catch (error) {
+    if ((error as { verificationRequired?: boolean }).verificationRequired) {
+      adapter.state.billingRegistrationPending = true;
+      await adapter.persist();
+    }
+    throw error;
+  }
   await completeBillingSignIn(adapter, email, tokens);
 }
 
@@ -294,6 +309,10 @@ export function addBillingAccountSettings(containerEl: HTMLElement, adapter: Con
     .setName("Email")
     .setDesc("Used to register, sign in, restore purchases, and open checkout.")
     .addText((text) => text.setPlaceholder("you@example.com").setValue(adapter.state.billingEmail).setDisabled(adapter.state.billingAccountLinked).onChange(async (value) => {
+      const journalState = adapter.state as ConstanceAccountState & Record<string, any>;
+      const hasPending = !!journalState.pendingCheckout || !!journalState.pendingFreeUsageClaim || !!journalState.pendingCreditSpends?.length;
+      if (hasPending && !journalState.pendingBillingOwnerEmail) journalState.pendingBillingOwnerEmail = adapter.state.billingEmail;
+      if (!hasPending) journalState.pendingBillingOwnerEmail = undefined;
       adapter.state.billingEmail = value.trim();
       await adapter.persist();
     }));
@@ -308,32 +327,17 @@ export function addBillingAccountSettings(containerEl: HTMLElement, adapter: Con
   new Setting(section)
     .setName("Account")
     .setDesc(accountStatus)
-    .addButton((button) => button.setButtonText("Register").setDisabled(adapter.state.billingAccountLinked).onClick(async () => {
-      button.setDisabled(true);
-      try {
-        await registerBillingAccount(adapter, password);
-        adapter.state.billingRegistrationPending = true;
-        await adapter.persist();
-        new Notice("Registered but not logged in. Check your email, click the confirmation link, then sign in here.");
-        adapter.refresh?.();
-      } catch (error) {
-        new Notice(error instanceof Error ? error.message : "Registration failed.");
-        adapter.refresh?.();
-      } finally {
-        button.setDisabled(false);
-      }
-    }))
-    .addButton((button) => button.setButtonText("Sign in").setDisabled(adapter.state.billingAccountLinked).onClick(async () => {
+    .addButton((button) => button.setButtonText("Connect").setDisabled(adapter.state.billingAccountLinked).onClick(async () => {
       button.setDisabled(true);
       try {
         await signInBillingAccount(adapter, password);
-        new Notice(`Signed in as ${adapter.state.billingEmail}.`);
+        password = "";
+        new Notice(adapter.state.billingRegistrationPending ? "Check your email and follow the verification link, then Connect again." : `Connected as ${adapter.state.billingEmail}.`);
         adapter.refresh?.();
       } catch (error) {
-        new Notice(error instanceof Error ? error.message : "Sign-in failed.");
-      } finally {
-        button.setDisabled(false);
-      }
+        new Notice(error instanceof Error ? error.message : "Connection failed. Please try again.");
+        adapter.refresh?.();
+      } finally { button.setDisabled(adapter.state.billingAccountLinked); }
     }))
     .addButton((button) => button.setButtonText("Sign out").setDisabled(!adapter.state.billingAccessToken && !adapter.state.billingRefreshToken).onClick(async () => {
       await signOutBillingAccount(adapter);

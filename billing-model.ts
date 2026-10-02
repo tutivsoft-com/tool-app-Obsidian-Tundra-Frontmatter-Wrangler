@@ -1,10 +1,7 @@
-export const FREE_USES_PER_DAY = 3;
+export const FREE_USES_PER_DAY = 5; // Legacy field name; server lifetime mirror only.
 
-/** Public credit packs from the live Constance catalog (2026-09-23). */
-export const TUNDRA_CREDIT_PACKS = [
-  { priceUsd: 1, credits: 100, planCode: "one_time", priceId: "pri_01m28hmkzcn3cf9e04qq1s9jw6" },
-  { priceUsd: 10, credits: 1000, planCode: "standard", priceId: "pri_01m28hmmvr4zs9enh6tptd7gjy" },
-] as const;
+/** Retained historical checkout codes for already pending legacy purchases, never public display. */
+export const TUNDRA_CREDIT_PACKS = [{planCode:"one_time"},{planCode:"standard"}] as const;
 
 export interface BillingState {
   deviceId: string;
@@ -17,7 +14,9 @@ export interface BillingState {
   freeUsageDate: string;
   freeUsesRemaining: number;
   pendingCreditSpends: string[];
+  pendingFreeUsageClaim?: string;
   pendingCheckout: { idempotencyKey: string; planCode: string; checkoutId?: string } | null;
+  pendingPriceCheckout?: { idempotencyKey: string; priceId: string; owner: string; checkoutId?: string };
 }
 
 export type LocalCreditSource = "free" | "purchased" | "remote";
@@ -39,7 +38,7 @@ export function defaultBillingState(): BillingState {
     billingAccountLinked: false,
     purchasedCredits: 0,
     freeUsageDate: "",
-    freeUsesRemaining: FREE_USES_PER_DAY,
+    freeUsesRemaining: 0,
     pendingCreditSpends: [],
     pendingCheckout: null,
   };
@@ -47,10 +46,6 @@ export function defaultBillingState(): BillingState {
 
 export function normalizeBillingState(state: Partial<BillingState> | undefined, today: string): BillingState {
   const next: BillingState = { ...defaultBillingState(), ...(state ?? {}) };
-  if (next.freeUsageDate !== today) {
-    next.freeUsageDate = today;
-    next.freeUsesRemaining = FREE_USES_PER_DAY;
-  }
   next.purchasedCredits = Math.max(0, Math.floor(Number(next.purchasedCredits) || 0));
   next.billingAccessToken = typeof next.billingAccessToken === "string" ? next.billingAccessToken : "";
   next.billingRefreshToken = typeof next.billingRefreshToken === "string" ? next.billingRefreshToken : "";
@@ -59,6 +54,7 @@ export function normalizeBillingState(state: Partial<BillingState> | undefined, 
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_USES_PER_DAY, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set((next.pendingCreditSpends ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
   if (!next.pendingCheckout || typeof next.pendingCheckout.idempotencyKey !== "string" || typeof next.pendingCheckout.planCode !== "string") next.pendingCheckout = null;
+  if (next.pendingPriceCheckout && (typeof next.pendingPriceCheckout.idempotencyKey !== "string" || typeof next.pendingPriceCheckout.priceId !== "string" || typeof next.pendingPriceCheckout.owner !== "string")) next.pendingPriceCheckout = undefined;
   return next;
 }
 

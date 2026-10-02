@@ -1,16 +1,17 @@
 import { App, ButtonComponent, FuzzySuggestModal, Menu, Modal, Notice, Plugin, PluginSettingTab, requestUrl, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
 import { resolveOpenRouterKey } from "./remote-key";
 import { Frontmatter, Operation, parseFrontmatter, planOperation, ChangePlan } from "./core";
-import { checkUseAvailable, defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, openCheckout, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
-import { TUNDRA_CREDIT_PACKS, type BillingState } from "./billing-model";
+import { checkUseAvailable, defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
+import { type BillingState } from "./billing-model";
+import { addLivePacks, resumePendingPriceCheckout } from "./billing-catalog";
 import { addBillingAccountSettings } from "./constance-account";
 import { PluginSupport } from "./plugin-support";
 import { AI_FIELD_TIERS, AI_TIER_LABELS, DEFAULT_AI_TIER, MAX_AI_RESPONSE_TOKENS, buildAiSystemPrompt, sanitizeAiFrontmatter, type AiFieldTier } from "./ai-frontmatter";
 import { AiRequestQueue, type QueueReporter } from "./ai-request-queue";
 
-interface TundraSettings { billing: BillingState; aiApiKey: string; aiModel: string; aiTier: AiFieldTier; aiConflict: "keep" | "replace"; reviewBeforeApply: boolean; defaultOperation: Operation; lastBatch?: Batch; }
+interface TundraSettings { billing: BillingState; settingsMode: "simple" | "advanced"; aiModel: string; aiTier: AiFieldTier; aiConflict: "keep" | "replace"; reviewBeforeApply: boolean; defaultOperation: Operation; lastBatch?: Batch; }
 interface Batch { id: string; createdAt: string; operation: Operation; files: Array<{ path: string; original: string; after?: string }>; summary: { changed: number; skipped: number; failed: number; unchanged: number }; }
-const DEFAULT_SETTINGS: TundraSettings = { billing: defaultBillingState(), aiApiKey: "", aiModel: "openai/gpt-5-mini", aiTier: DEFAULT_AI_TIER, aiConflict: "keep", reviewBeforeApply: false, defaultOperation: { kind: "ai-frontmatter", aiTier: DEFAULT_AI_TIER, aiFields: [...AI_FIELD_TIERS[DEFAULT_AI_TIER]], aiConflict: "keep" } };
+const DEFAULT_SETTINGS: TundraSettings = { billing: defaultBillingState(), settingsMode: "simple", aiModel: "openai/gpt-5-mini", aiTier: DEFAULT_AI_TIER, aiConflict: "keep", reviewBeforeApply: true, defaultOperation: { kind: "ai-frontmatter", aiTier: DEFAULT_AI_TIER, aiFields: [...AI_FIELD_TIERS[DEFAULT_AI_TIER]], aiConflict: "keep" } };
 function defaultOperation(kind: Operation["kind"], settings: TundraSettings): Operation {
   if (kind === "ai-frontmatter") return { kind, aiTier: settings.aiTier, aiFields: [...AI_FIELD_TIERS[settings.aiTier]], aiConflict: settings.aiConflict };
   if (kind === "rename") return { kind, oldKey: "", newKey: "", collision: "skip" };
@@ -25,20 +26,23 @@ const MAX_AI_NOTE_CHARS = 12000;
 
 export default class TundraPlugin extends Plugin {
   settings: TundraSettings = { ...DEFAULT_SETTINGS };
+  refreshBillingCredits?: () => void;
   support!: PluginSupport;
   aiQueue!: AiRequestQueue;
   async onload() {
-    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in settings only if you want a before/after window."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy full debug log"], troubleshooting: ["Use Copy full debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
+    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Review the before/after plan, then confirm the batch."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy full debug log"], troubleshooting: ["Use Copy full debug log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
     this.support.start();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.settings.billing = ensureBillingState(this.settings.billing);
-    this.settings.aiApiKey = typeof this.settings.aiApiKey === "string" ? this.settings.aiApiKey : "";
+    delete (this.settings as TundraSettings & { aiApiKey?: string }).aiApiKey;
+    this.settings.settingsMode = this.settings.settingsMode === "advanced" ? "advanced" : "simple";
     this.settings.aiModel = typeof this.settings.aiModel === "string" && this.settings.aiModel.trim() ? this.settings.aiModel : DEFAULT_SETTINGS.aiModel;
     await this.saveSettings();
     this.aiQueue = new AiRequestQueue(this.app, "Tundra");
     this.support.info("settings.loaded", { operation: this.settings.defaultOperation.kind, reviewEnabled: this.settings.reviewBeforeApply });
     void retryPendingCreditSpends(this);
     resumePendingCheckout(this);
+    resumePendingPriceCheckout(this);
     this.addCommand({ id: "open-wrangle", name: "Open frontmatter wrangler", callback: () => new WranglerModal(this.app, this).open() });
     this.addCommand({ id: "open-wrangle-current-note", name: "Open frontmatter wrangler for current note", checkCallback: (checking) => { const file = this.app.workspace.getActiveFile(); if (checking) return !!file; if (file) new WranglerModal(this.app, this, { file }).open(); return true; } });
     this.addCommand({ id: "open-wrangle-current-folder", name: "Open frontmatter wrangler for current folder", checkCallback: (checking) => { const folder = this.app.workspace.getActiveFile()?.parent; if (checking) return !!folder?.path; if (folder) new WranglerModal(this.app, this, { folder }).open(); return true; } });
@@ -89,39 +93,40 @@ class TundraSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
     containerEl.createEl("p", { text: "Review deterministic or AI-assisted metadata proposals. Every write is journaled for rollback." });
     new Setting(containerEl).setName("Open wrangler").setDesc("Review and apply a bulk operation").addButton(b => b.setButtonText("Open").setCta().onClick(() => new WranglerModal(this.app, this.plugin).open()));
-    this.plugin.support.addDiagnosticsSetting(containerEl);
+    new Setting(containerEl).setName("Settings mode").setDesc("Simple shows everyday metadata preferences. Advanced adds model and operation details.").addDropdown(d => d.addOptions({ simple: "Simple", advanced: "Advanced" }).setValue(this.plugin.settings.settingsMode).onChange(async value => { this.plugin.settings.settingsMode = value as "simple" | "advanced"; await this.plugin.saveSettings(); this.display(); }));
+    const advanced = this.plugin.settings.settingsMode === "advanced";
+    if (advanced) this.plugin.support.addDiagnosticsSetting(containerEl);
     new Setting(containerEl).setName("AI request queue").setDesc("View the active request and waiting frontmatter runs, or remove waiting runs.").addButton(button => button.setButtonText("Show queue").onClick(() => this.plugin.aiQueue.open()));
 
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => { await syncBalance(this.plugin); }, refresh: () => this.display() });
-    new Setting(containerEl).setName("Credits").setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} free apply batches remain today · ${billing.purchasedCredits} purchased credits in the local mirror.`).addButton(button => button.setButtonText("Sync balance").onClick(async () => { button.setDisabled(true); const result = await syncBalance(this.plugin); new Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3000 : 5000); this.display(); }));
+    const creditsSetting = new Setting(containerEl).setName("Credits");
+    const showCredits = () => creditsSetting.setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} lifetime free apply batches remain · ${billing.purchasedCredits} purchased credits in the local mirror.`);
+    showCredits();
+    this.plugin.refreshBillingCredits = showCredits;
+    void syncBalance(this.plugin).then(showCredits).catch(() => {});
+    creditsSetting.addButton(button => button.setButtonText("Sync balance").onClick(async () => { button.setDisabled(true); try { const result = await syncBalance(this.plugin); new Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3000 : 5000); this.display(); } catch { new Notice("Tundra: balance refresh failed. Check your connection and retry."); } finally { button.setDisabled(false); } }));
     containerEl.createEl("h3", { text: "AI frontmatter" });
-    containerEl.createEl("p", { text: "AI suggestions use OpenRouter. Note content and current frontmatter are sent only when you choose the AI operation and confirm the request. OpenRouter may charge your account." });
-    new Setting(containerEl).setName("OpenRouter API key").setDesc("Optional personal key. When blank, Tundra loads its own capped key from an encrypted remote manifest.").addText(input => { input.setPlaceholder("sk-or-…").setValue(this.plugin.settings.aiApiKey).onChange(async value => { this.plugin.settings.aiApiKey = value.trim(); await this.plugin.saveSettings(); }); input.inputEl.type = "password"; });
-    new Setting(containerEl).setName("OpenRouter model").setDesc("Model ID used for AI-generated frontmatter suggestions.").addText(input => input.setPlaceholder("openai/gpt-5-mini").setValue(this.plugin.settings.aiModel).onChange(async value => { this.plugin.settings.aiModel = value.trim(); await this.plugin.saveSettings(); }));
+    containerEl.createEl("p", { text: "AI suggestions are sent directly to OpenRouter using TutivSoft's existing managed key. Note content is sent only when you choose the AI operation. Constance handles account credits and Paddle purchases." });
+    if (advanced) new Setting(containerEl).setName("AI model").setDesc("Balanced is recommended for concise metadata; higher quality may take longer.").addDropdown(d => d.addOptions({ [this.plugin.settings.aiModel]: `${this.plugin.settings.aiModel} (saved model)`, "openai/gpt-5-mini": "Balanced (recommended)", "openai/gpt-5": "Higher quality" }).setValue(this.plugin.settings.aiModel).onChange(async value => { this.plugin.settings.aiModel = value; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Default AI field tier").setDesc("Used automatically when generating frontmatter. Standard is the recommended balance.").addDropdown(dropdown => dropdown.addOptions(AI_TIER_LABELS).setValue(this.plugin.settings.aiTier).onChange(async value => { this.plugin.settings.aiTier = value as AiFieldTier; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Existing AI properties").setDesc("Keep existing values by default, or replace them with suggestions.").addDropdown(dropdown => dropdown.addOptions({ keep: "Keep existing values", replace: "Replace with suggestions" }).setValue(this.plugin.settings.aiConflict).onChange(async value => { this.plugin.settings.aiConflict = value as "keep" | "replace"; await this.plugin.saveSettings(); }));
-    new Setting(containerEl).setName("Review before applying").setDesc("Off by default: generate the plan and apply it in one run. Turn on to inspect before/after changes and confirm each batch.").addToggle(toggle => toggle.setValue(this.plugin.settings.reviewBeforeApply).onChange(async value => { this.plugin.settings.reviewBeforeApply = value; await this.plugin.saveSettings(); }));
+    new Setting(containerEl).setName("Review before applying").setDesc("Recommended: inspect before/after changes and confirm each batch. Turn off only to apply configured operations immediately.").addToggle(toggle => toggle.setValue(this.plugin.settings.reviewBeforeApply).onChange(async value => { this.plugin.settings.reviewBeforeApply = value; await this.plugin.saveSettings(); }));
     const operationNames: Record<Operation["kind"], string> = { "ai-frontmatter": "Generate frontmatter", format: "Clean formatting", "add-tags": "Add tags", "remove-tags": "Remove tags", "replace-tag": "Replace a tag", "normalize-tags": "Normalize tags", rename: "Rename a property", remove: "Remove a property", reorder: "Reorder properties" };
-    new Setting(containerEl).setName("Default operation").setDesc("Used by the Apply configured operation commands. Configure its values below.").addDropdown(dropdown => dropdown.addOptions(Object.fromEntries(Object.entries(operationNames).map(([key, value]) => [key, value]))).setValue(this.plugin.settings.defaultOperation.kind).onChange(async value => { this.plugin.settings.defaultOperation = defaultOperation(value as Operation["kind"], this.plugin.settings); await this.plugin.saveSettings(); this.display(); }));
+    if (advanced) new Setting(containerEl).setName("Default operation").setDesc("Used by the Apply configured operation commands. Configure its values below.").addDropdown(dropdown => dropdown.addOptions(Object.fromEntries(Object.entries(operationNames).map(([key, value]) => [key, value]))).setValue(this.plugin.settings.defaultOperation.kind).onChange(async value => { this.plugin.settings.defaultOperation = defaultOperation(value as Operation["kind"], this.plugin.settings); await this.plugin.saveSettings(); this.display(); }));
     const savedOperation = this.plugin.settings.defaultOperation;
     const saveOperationText = (key: "oldKey" | "newKey" | "tags" | "fromTag" | "toTag" | "namespace" | "rules" | "order", value: string) => { if (key === "tags" || key === "order") (savedOperation[key] as string[] | undefined) = value.split(",").map(item => item.trim()).filter(Boolean); else (savedOperation[key] as string | undefined) = value; void this.plugin.saveSettings(); };
-    new Setting(containerEl).setName("Property key").addText(text => text.setValue(savedOperation.oldKey ?? "").onChange(value => saveOperationText("oldKey", value)));
-    new Setting(containerEl).setName("New property key").addText(text => text.setValue(savedOperation.newKey ?? "").onChange(value => saveOperationText("newKey", value)));
-    new Setting(containerEl).setName("Tags").addText(text => text.setValue((savedOperation.tags ?? []).join(", ")).onChange(value => saveOperationText("tags", value)));
-    new Setting(containerEl).setName("From tag").addText(text => text.setValue(savedOperation.fromTag ?? "").onChange(value => saveOperationText("fromTag", value)));
-    new Setting(containerEl).setName("To tag").addText(text => text.setValue(savedOperation.toTag ?? "").onChange(value => saveOperationText("toTag", value)));
-    new Setting(containerEl).setName("Tag namespace").addText(text => text.setValue(savedOperation.namespace ?? "").onChange(value => saveOperationText("namespace", value)));
-    new Setting(containerEl).setName("Tag normalization rules").setDesc("Supported values: lowercase, spaces to hyphens, slash separators.").addText(text => text.setValue(savedOperation.rules ?? "lowercase, spaces to hyphens, slash separators").onChange(value => saveOperationText("rules", value)));
-    new Setting(containerEl).setName("Preferred property order").addText(text => text.setValue((savedOperation.order ?? []).join(", ")).onChange(value => saveOperationText("order", value)));
-    new Setting(containerEl).setName("Property collision behavior").addDropdown(dropdown => dropdown.addOptions({ skip: "Skip", keep: "Keep existing", replace: "Replace", merge: "Merge" }).setValue(savedOperation.collision ?? "skip").onChange(async value => { savedOperation.collision = value as Operation["collision"]; await this.plugin.saveSettings(); }));
-    new Setting(containerEl).setName("Unknown property placement").addDropdown(dropdown => dropdown.addOptions({ after: "After preferred properties", before: "Before preferred properties" }).setValue(savedOperation.unknownPosition ?? "after").onChange(async value => { savedOperation.unknownPosition = value as "before" | "after"; await this.plugin.saveSettings(); }));
-    const packs = new Setting(containerEl).setName("Buy credits").setDesc("One-time packs. Credits are used for one non-empty apply batch after the daily free allowance.");
-    TUNDRA_CREDIT_PACKS.forEach((pack, index) => packs.addButton(button => {
-      button.setButtonText(`Buy $${pack.priceUsd} (${pack.credits.toLocaleString()} credits)`);
-      if (index === TUNDRA_CREDIT_PACKS.length - 1) button.setCta();
-      button.onClick(() => openCheckout(this.plugin, index === 0 ? "usd001" : "usd010"));
-    }));
+    if (advanced && ["rename", "remove"].includes(savedOperation.kind)) new Setting(containerEl).setName("Property key").setDesc("Existing property name, for example status.").addText(text => text.setValue(savedOperation.oldKey ?? "").onChange(value => saveOperationText("oldKey", value)));
+    if (advanced && savedOperation.kind === "rename") new Setting(containerEl).setName("New property key").setDesc("Replacement property name, for example workflow_status.").addText(text => text.setValue(savedOperation.newKey ?? "").onChange(value => saveOperationText("newKey", value)));
+    if (advanced && ["add-tags", "remove-tags"].includes(savedOperation.kind)) new Setting(containerEl).setName("Tags").setDesc("Comma-separated tags, for example project, meeting.").addText(text => text.setValue((savedOperation.tags ?? []).join(", ")).onChange(value => saveOperationText("tags", value)));
+    if (advanced && savedOperation.kind === "replace-tag") new Setting(containerEl).setName("From tag").setDesc("Exact tag to replace, for example work/old.").addText(text => text.setValue(savedOperation.fromTag ?? "").onChange(value => saveOperationText("fromTag", value)));
+    if (advanced && savedOperation.kind === "replace-tag") new Setting(containerEl).setName("To tag").setDesc("Replacement tag, for example work/current.").addText(text => text.setValue(savedOperation.toTag ?? "").onChange(value => saveOperationText("toTag", value)));
+    if (advanced && savedOperation.kind === "normalize-tags") new Setting(containerEl).setName("Tag namespace").setDesc("Optional prefix for normalized tags, for example work.").addText(text => text.setValue(savedOperation.namespace ?? "").onChange(value => saveOperationText("namespace", value)));
+    if (advanced && savedOperation.kind === "normalize-tags") new Setting(containerEl).setName("Tag normalization rules").setDesc("Choose how existing tags are normalized. All rules converts Work Notes to work-notes and backslashes to slashes.").addDropdown(d => d.addOptions({ [savedOperation.rules ?? "lowercase, spaces to hyphens, slash separators"]: "Current saved rules", "lowercase, spaces to hyphens, slash separators": "All rules (recommended)", "lowercase": "Lowercase only", "spaces to hyphens": "Spaces to hyphens only", "slash separators": "Slash separators only", "lowercase, spaces to hyphens": "Lowercase and hyphens", "lowercase, slash separators": "Lowercase and slashes", "spaces to hyphens, slash separators": "Hyphens and slashes" }).setValue(savedOperation.rules ?? "lowercase, spaces to hyphens, slash separators").onChange(value => saveOperationText("rules", value)));
+    if (advanced && savedOperation.kind === "reorder") new Setting(containerEl).setName("Preferred property order").setDesc("Comma-separated property names, for example title, status, tags.").addText(text => text.setValue((savedOperation.order ?? []).join(", ")).onChange(value => saveOperationText("order", value)));
+    if (advanced && savedOperation.kind === "rename") new Setting(containerEl).setName("Property collision behavior").setDesc("Skip preserves notes when the destination property already exists.").addDropdown(dropdown => dropdown.addOptions({ skip: "Skip", keep: "Keep existing", replace: "Replace", merge: "Merge" }).setValue(savedOperation.collision ?? "skip").onChange(async value => { savedOperation.collision = value as Operation["collision"]; await this.plugin.saveSettings(); }));
+    if (advanced && savedOperation.kind === "reorder") new Setting(containerEl).setName("Unknown property placement").setDesc("Where properties absent from your preferred order appear.").addDropdown(dropdown => dropdown.addOptions({ after: "After preferred properties", before: "Before preferred properties" }).setValue(savedOperation.unknownPosition ?? "after").onChange(async value => { savedOperation.unknownPosition = value as "before" | "after"; await this.plugin.saveSettings(); }));
+    addLivePacks(containerEl, this.plugin);
     containerEl.createEl("p", { cls: "tundra-note", text: `This install's billing device ID is saved locally and is not editable: ${billing.deviceId.slice(0, 18)}…` });
 
     if (this.plugin.settings.lastBatch) new Setting(containerEl).setName("Most recent batch").setDesc(`${this.plugin.settings.lastBatch.summary.changed} changed · ${this.plugin.settings.lastBatch.createdAt}`).addButton(b => b.setButtonText("Rollback").onClick(() => rollback(this.app, this.plugin)));
@@ -461,7 +466,10 @@ class WranglerModal extends Modal {
       try {
         if (await this.app.vault.read(file) !== plan.before) { batch.summary.skipped++; continue; }
         batch.files.push({ path: plan.path, original: plan.before, after: plan.after });
+        this.plugin.settings.lastBatch = batch;
+        await this.plugin.saveSettings();
         await this.app.vault.modify(file, plan.after);
+        if (await this.app.vault.read(file) !== plan.after) throw new Error("Write verification failed.");
         batch.summary.changed++;
       } catch { batch.summary.failed++; }
     }
@@ -493,7 +501,7 @@ async function requestAiFrontmatter(body: string, existing: Frontmatter, fields:
   const response = await requestUrl({
     url: "https://openrouter.ai/api/v1/chat/completions",
     method: "POST",
-    headers: { Authorization: `Bearer ${await resolveOpenRouterKey(settings.aiApiKey)}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${await resolveOpenRouterKey()}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       temperature: 0.2,
