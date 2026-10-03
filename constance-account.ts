@@ -111,9 +111,36 @@ export async function signOutBillingAccount(adapter: ConstanceAccountAdapter): P
   }
 }
 
+class ConstanceAccountError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ConstanceAccountError";
+    this.status = status;
+  }
+}
+
 function errorDetail(response: { json?: any; text?: string }, fallback: string): string {
-  if (response.json?.detail?.code === "invalid_credentials") return "Incorrect password. Use Forgot password? to reset it.";
-  return String(response.json?.detail?.message || response.json?.detail || response.json?.message || fallback);
+  const payload = response.json?.data || response.json;
+  const detail = payload?.detail;
+  const code = detail?.code || payload?.code;
+  if (code === "invalid_credentials") return "The email or password is incorrect. Use Forgot password? to reset it.";
+  if (code === "email_verification_required") return "Email not verified. Click the link in your email, then Connect again.";
+  return String(detail?.message || (typeof detail === "string" ? detail : "") || payload?.message || fallback);
+}
+
+async function linkAuthenticatedInstallation(adapter: ConstanceAccountAdapter, token: string): Promise<void> {
+  try {
+    await linkInstallation(adapter, token);
+  } catch (error) {
+    if (error instanceof ConstanceAccountError && error.status === 401) {
+      adapter.state.billingAccessToken = "";
+      adapter.state.billingRefreshToken = "";
+      adapter.state.billingAccountLinked = false;
+      await adapter.persist();
+    }
+    throw error;
+  }
 }
 
 async function authenticate(
@@ -128,7 +155,7 @@ async function authenticate(
     throw: false,
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(errorDetail(response, `Billing login failed (HTTP ${response.status})`));
+    throw new ConstanceAccountError(errorDetail(response, `Billing login failed (HTTP ${response.status})`), response.status);
   }
   if (response.json?.verification_required) throw Object.assign(new Error("Email verification required. Check your email, then Connect again."), { verificationRequired: true });
   return readTokens(response.json);
@@ -147,7 +174,7 @@ export async function registerBillingAccount(adapter: ConstanceAccountAdapter, p
     throw: false,
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(errorDetail(response, `Billing registration failed (HTTP ${response.status})`));
+    throw new ConstanceAccountError(errorDetail(response, `Billing registration failed (HTTP ${response.status})`), response.status);
   }
   adapter.state.billingEmail = email;
   await adapter.persist();
@@ -173,7 +200,7 @@ async function linkInstallation(adapter: ConstanceAccountAdapter, token: string)
     throw: false,
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(errorDetail(response, `Installation link failed (HTTP ${response.status})`));
+    throw new ConstanceAccountError(errorDetail(response, `Installation link failed (HTTP ${response.status})`), response.status);
   }
 }
 
@@ -200,13 +227,15 @@ export async function signInBillingAccount(
 }
 
 async function completeBillingSignIn(adapter: ConstanceAccountAdapter, email: string, tokens: AuthTokens): Promise<void> {
-  await linkInstallation(adapter, tokens.accessToken);
   adapter.state.billingEmail = email;
   adapter.state.billingAccessToken = tokens.accessToken;
   adapter.state.billingRefreshToken = tokens.refreshToken;
   adapter.state.billingAccessExpiresAt = tokens.expiresAt;
-  adapter.state.billingAccountLinked = true;
+  adapter.state.billingAccountLinked = false;
   adapter.state.billingRegistrationPending = false;
+  await adapter.persist();
+  await linkAuthenticatedInstallation(adapter, tokens.accessToken);
+  adapter.state.billingAccountLinked = true;
   await adapter.persist();
   await adapter.syncBalance();
 }

@@ -426,10 +426,34 @@ async function signOutBillingAccount(adapter) {
     }
   }
 }
+var ConstanceAccountError = class extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "ConstanceAccountError";
+    this.status = status;
+  }
+};
 function errorDetail(response, fallback) {
-  var _a2, _b2, _c2, _d2, _e2, _f2;
-  if (((_b2 = (_a2 = response.json) == null ? void 0 : _a2.detail) == null ? void 0 : _b2.code) === "invalid_credentials") return "Incorrect password. Use Forgot password? to reset it.";
-  return String(((_d2 = (_c2 = response.json) == null ? void 0 : _c2.detail) == null ? void 0 : _d2.message) || ((_e2 = response.json) == null ? void 0 : _e2.detail) || ((_f2 = response.json) == null ? void 0 : _f2.message) || fallback);
+  var _a2;
+  const payload = ((_a2 = response.json) == null ? void 0 : _a2.data) || response.json;
+  const detail = payload == null ? void 0 : payload.detail;
+  const code = (detail == null ? void 0 : detail.code) || (payload == null ? void 0 : payload.code);
+  if (code === "invalid_credentials") return "The email or password is incorrect. Use Forgot password? to reset it.";
+  if (code === "email_verification_required") return "Email not verified. Click the link in your email, then Connect again.";
+  return String((detail == null ? void 0 : detail.message) || (typeof detail === "string" ? detail : "") || (payload == null ? void 0 : payload.message) || fallback);
+}
+async function linkAuthenticatedInstallation(adapter, token) {
+  try {
+    await linkInstallation(adapter, token);
+  } catch (error) {
+    if (error instanceof ConstanceAccountError && error.status === 401) {
+      adapter.state.billingAccessToken = "";
+      adapter.state.billingRefreshToken = "";
+      adapter.state.billingAccountLinked = false;
+      await adapter.persist();
+    }
+    throw error;
+  }
 }
 async function authenticate(email, password) {
   var _a2;
@@ -441,7 +465,7 @@ async function authenticate(email, password) {
     throw: false
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(errorDetail(response, `Billing login failed (HTTP ${response.status})`));
+    throw new ConstanceAccountError(errorDetail(response, `Billing login failed (HTTP ${response.status})`), response.status);
   }
   if ((_a2 = response.json) == null ? void 0 : _a2.verification_required) throw Object.assign(new Error("Email verification required. Check your email, then Connect again."), { verificationRequired: true });
   return readTokens(response.json);
@@ -461,7 +485,7 @@ async function linkInstallation(adapter, token) {
     throw: false
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(errorDetail(response, `Installation link failed (HTTP ${response.status})`));
+    throw new ConstanceAccountError(errorDetail(response, `Installation link failed (HTTP ${response.status})`), response.status);
   }
 }
 async function signInBillingAccount(adapter, password) {
@@ -484,13 +508,15 @@ async function signInBillingAccount(adapter, password) {
   await completeBillingSignIn(adapter, email, tokens);
 }
 async function completeBillingSignIn(adapter, email, tokens) {
-  await linkInstallation(adapter, tokens.accessToken);
   adapter.state.billingEmail = email;
   adapter.state.billingAccessToken = tokens.accessToken;
   adapter.state.billingRefreshToken = tokens.refreshToken;
   adapter.state.billingAccessExpiresAt = tokens.expiresAt;
-  adapter.state.billingAccountLinked = true;
+  adapter.state.billingAccountLinked = false;
   adapter.state.billingRegistrationPending = false;
+  await adapter.persist();
+  await linkAuthenticatedInstallation(adapter, tokens.accessToken);
+  adapter.state.billingAccountLinked = true;
   await adapter.persist();
   await adapter.syncBalance();
 }
