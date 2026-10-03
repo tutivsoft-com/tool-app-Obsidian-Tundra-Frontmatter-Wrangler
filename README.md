@@ -1,28 +1,24 @@
 # Tundra Frontmatter Wrangler
 
-Version: 3.6.33 — validated locally for publication; release pending.
+Version: 3.6.35
 
 ## Current purchase behavior
 
 Purchase settings load the app's current offer configuration and Paddle prices from Constance. Offer quantities use the app's native billing unit from that configuration; displayed amounts and descriptions come from the current provider price. The client matches offers by exact configured price ID and enables purchase only when Constance reports `checkout_available`. Checkout sends that exact price ID through the authenticated billing route. Prices and pack quantities are not fixed in the plugin. Existing account balances and granted credits remain associated with the account.
 
-<!-- SETTINGS-CURRENT-2026-09-30 -->
 ## Current settings
 
 Settings default to **Simple** and remember the selected mode. Simple contains everyday controls and account/billing. **Advanced** contains specialist parameters, diagnostics, and less frequent preferences. Inline help explains choices.
 
 AI requests go directly to OpenRouter using TutivSoft's existing managed-key resolver. Constance handles account credits and Paddle purchases; a credit is committed only after a note write is verified. Current product details, price and quantity load from the Paddle catalog through Constance.
-<!-- SETTINGS-CURRENT-2026-09-30:END -->
 
-<!-- BILLING-CURRENT-2026-09-30 -->
-## Current local account and billing behavior
+## Local account and billing behavior
 
 Use **Connect** with your email and password. A new account is registered; an existing account is authenticated. New users must follow the emailed verification link and Connect again. Incorrect passwords offer password recovery; passwords are never saved. Paid purchases and free allowances belong to the authenticated account, not a locally entered email or an editable cached balance. Reinstalling does not replenish the same account's allowance.
 
-Constance is the billing authority. Credit units remain app-specific: characters, OCR pages, searches, conversions, repair/protection batches, or captures. Checkout return URLs and cached balances never grant credits. Payment fulfillment comes from the server’s verified Paddle webhook, and balances refresh from authenticated entitlements. Unknown usage or checkout results reuse the persisted operation ID; they must not create a new debit or alternative checkout.
+Constance is the billing authority. Tundra consumes one apply batch for each non-empty authorized write batch; preview, no-op planning, and rollback are free. Checkout return URLs and cached balances never grant credits. Payment fulfillment comes from the server’s verified Paddle webhook, and balances refresh from authenticated entitlements. Unknown usage or checkout results reuse the persisted operation ID; they must not create a new debit or alternative checkout.
 
 
-<!-- BILLING-CURRENT-2026-09-30:END -->
 
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. AI runs open a live queue that shows the submitted text excerpt, current target, elapsed seconds, and completion. Overlapping AI runs are serialized, and waiting runs can be cleared while the active request finishes. Before/after review is enabled by default for new installations. Tundra keeps a rollback journal.
@@ -81,11 +77,9 @@ MIT. See [LICENSE](LICENSE).
 
 AI requests go directly to OpenRouter through the existing managed-key resolver. The model can be changed in Advanced settings. Constance handles credit accounts, Paddle price lookup, and checkout.
 
-<!-- one-click-workflow:start -->
-## Workflow defaults (v3.6.33)
+## Workflow defaults (v3.6.35)
 
 Tundra runs the configured operation directly from note and folder commands. AI requests are serialized in the request queue; choose **Show AI request queue** in the command palette or Settings to inspect or clear waiting runs. Before/after review is enabled for new installations and follows the saved preference; account authorization is required for billable writes.
-<!-- one-click-workflow:end -->
 
 ## Account, billing, and credit feedback
 
