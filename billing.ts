@@ -1,16 +1,17 @@
+import { consumeAccountUnits } from "./account-credit-client";
 import { Notice, requestUrl } from "obsidian";
 import type TundraPlugin from "./main";
 import {
   claimLocalAllowance,
-  FREE_USES_PER_DAY,
+  FREE_LIFETIME_USES,
   isBillableWriteBatch,
   localCalendarDate,
   normalizeBillingState,
   TUNDRA_CREDIT_PACKS,
   type BillingState,
 } from "./billing-model";
-import { claimAccountFreeUsage, spendAccountCredits, requestAuthenticatedBilling, clearBillingSession } from "./constance-account";
-export { defaultBillingState, FREE_USES_PER_DAY } from "./billing-model";
+import { claimAccountFreeUsage, spendAccountCredits, requestAuthenticatedBilling, clearBillingSession, refreshBillingSession } from "./constance-account";
+export { defaultBillingState, FREE_LIFETIME_USES } from "./billing-model";
 
 export const CONSTANCE_BASE_URL = "https://app.tutivsoft.com";
 export const CONSTANCE_APP_ID = "tundra-frontmatter-wrangler";
@@ -51,7 +52,7 @@ function wait(milliseconds: number): Promise<void> {
 }
 
 function readBalance(response: { json?: any }): number {
-  return Math.max(0, Number(response.json?.data?.credits?.balance) || 0);
+  return Math.max(0, Number((response.json?.data?.credits?.total_available ?? response.json?.data?.credits?.balance)) || 0);
 }
 
 async function spendConstanceCredit(plugin: TundraPlugin, stableEventId: string): Promise<SpendResult> {
@@ -71,7 +72,24 @@ async function spendConstanceCredit(plugin: TundraPlugin, stableEventId: string)
 export type UseCommitResult = { kind: "committed" } | { kind: "pending" } | { kind: "insufficient" };
 export interface UseReservation { source: "free" | "purchased"; commit(): Promise<UseCommitResult>; rollback(): Promise<void>; }
 
+async function consumeUsage(plugin: TundraPlugin, eventId: string) {
+  const state = plugin.settings.billing;
+  const result = await consumeAccountUnits({ state, appId: CONSTANCE_APP_ID, installationId: state.deviceId, refreshSession: () => refreshBillingSession(state, () => plugin.saveSettings()) }, eventId, 1);
+  if (result.kind === "ok") {
+    if (result.freeRemaining !== undefined) state.freeUsesRemaining = result.freeRemaining;
+    if (result.balance !== undefined) state.purchasedCredits = result.balance;
+  }
+  return result;
+}
+
 export async function retryPendingCreditSpends(plugin: TundraPlugin): Promise<void> {
+  for (const eventId of [...(plugin.settings.billing.pendingUsageConsumes ?? [])]) {
+    const result = await consumeUsage(plugin, eventId);
+    if (result.kind === "error" || result.kind === "auth-required") return;
+    plugin.settings.billing.pendingUsageConsumes = plugin.settings.billing.pendingUsageConsumes.filter(id => id !== eventId);
+    try { await plugin.saveSettings(); }
+    catch { plugin.settings.billing.pendingUsageConsumes.push(eventId); return; }
+  }
   for (const stableEventId of [...plugin.settings.billing.pendingCreditSpends]) {
     const result = await spendConstanceCredit(plugin, stableEventId);
     if (result.kind === "error") break;
@@ -90,7 +108,7 @@ export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> 
     return false;
   }
   await retryPendingCreditSpends(plugin);
-  if (plugin.settings.billing.pendingCreditSpends.length > 0) {
+  if ((plugin.settings.billing.pendingCreditSpends.length > 0 || (plugin.settings.billing.pendingUsageConsumes?.length ?? 0) > 0)) {
     plugin.support.warn("billing.entitlement.rejected", { outcome: "pending_credit_reconciliation" });
     new Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5000);
     return false;
@@ -114,14 +132,14 @@ export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> 
     }
     const entitlements = response.json?.data;
     const freeRemaining = Math.max(0, Number(entitlements?.free_usage?.remaining) || 0);
-    const paidBalance = Math.max(0, Number(entitlements?.credits?.balance) || 0);
+    const paidBalance = Math.max(0, Number(entitlements?.credits?.total_available ?? entitlements?.credits?.balance) || 0);
     const today = localCalendarDate();
     state.freeUsageDate = today;
-    state.freeUsesRemaining = Math.min(FREE_USES_PER_DAY, Math.floor(freeRemaining));
+    state.freeUsesRemaining = Math.min(FREE_LIFETIME_USES, Math.floor(freeRemaining));
     state.purchasedCredits = Math.floor(paidBalance);
     await plugin.saveSettings();
     if (freeRemaining > 0 || paidBalance > 0) return true;
-    new Notice("Tundra: today's free allowance is exhausted and no purchased credits remain.", 5000);
+    new Notice("Tundra: your lifetime free allowance is exhausted and no purchased credits remain.", 5000);
     return false;
   } catch {
     plugin.support.warn("billing.entitlement.rejected", { outcome: "request_failed" });
@@ -226,83 +244,29 @@ export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation |
     await plugin.saveSettings();
   }
   await retryPendingCreditSpends(plugin);
-  if (plugin.settings.billing.pendingCreditSpends.length > 0) {
+  if ((plugin.settings.billing.pendingCreditSpends.length > 0 || (plugin.settings.billing.pendingUsageConsumes?.length ?? 0) > 0)) {
     new Notice("Tundra: a previous credit charge is still being reconciled. Try again when connected.", 5000);
     return null;
   }
   if (!await checkUseAvailable(plugin)) return null;
-  const today = localCalendarDate();
-  const current = ensureBillingState(plugin.settings.billing);
-  const claim = claimLocalAllowance(current, today);
-  plugin.settings.billing = claim.state;
-
-  if (claim.source === "free") {
-    plugin.settings.billing = current;
-    const id = current.pendingFreeUsageClaim || `free_${generateEventId()}`;
-    let committed = false;
-    return { source: "free", commit: async () => {
-      if (committed) return { kind: "committed" };
-      current.pendingFreeUsageClaim = id;
-      await plugin.saveSettings();
-      const result = await claimAccountFreeUsage(current, () => plugin.saveSettings(), CONSTANCE_APP_ID, current.deviceId, id, 1);
-      if (result.kind === "error" || result.kind === "auth-required") return { kind: "pending" };
-      current.pendingFreeUsageClaim = undefined;
-      current.freeUsesRemaining = result.kind === "ok" ? result.remaining : 0;
-      try { await plugin.saveSettings(); }
-      catch { current.pendingFreeUsageClaim = id; return { kind: "pending" }; }
-      committed = true;
-      return result.kind === "ok" ? { kind: "committed" } : { kind: "insufficient" };
-    }, rollback: async () => undefined };
-  }
-
-  // A zero mirror is not an authorization to spend. Refresh it once so a
-  // purchase made on the checkout page can be used without requiring a
-  // plugin reload. The remote spend is deferred until a write succeeds.
-  if (claim.source === "remote") {
-    const sync = await syncBalance(plugin);
-    if (sync.kind !== "ok" || sync.balance < 1) {
-      new Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5000);
-      return null;
-    }
-    const refreshed = claimLocalAllowance(plugin.settings.billing, today);
-    plugin.settings.billing = refreshed.state;
-    if (refreshed.source !== "purchased") {
-      new Notice("Tundra: your free uses are exhausted and no purchased credits remain.", 5000);
-      return null;
-    }
-  }
-
-  // The local balance can be stale after a purchase or another installation's
-  // spend. Confirm it before changing any notes.
-  const freshBalance = await syncBalance(plugin);
-  if (freshBalance.kind !== "ok" || freshBalance.balance < 1) {
-    new Notice("Tundra: purchased credits could not be verified. Refresh your balance and try again.", 5000);
-    return null;
-  }
+  const current = plugin.settings.billing;
   const stableEventId = generateEventId();
   let settled = false;
   return {
-    source: "purchased",
+    source: current.freeUsesRemaining > 0 ? "free" : "purchased",
     commit: async () => {
       if (settled) return { kind: "committed" };
-      plugin.settings.billing.pendingCreditSpends.push(stableEventId);
+      current.pendingUsageConsumes = [...new Set([...(current.pendingUsageConsumes ?? []), stableEventId])];
       await plugin.saveSettings();
-
-      const result = await spendConstanceCredit(plugin, stableEventId);
-      if (result.kind === "error") return { kind: "pending" };
-      settled = true;
-      plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
-      if (result.kind === "insufficient") plugin.settings.billing.purchasedCredits = 0;
-      else plugin.settings.billing.purchasedCredits = result.balance;
+      const result = await consumeUsage(plugin, stableEventId);
+      if (result.kind === "error" || result.kind === "auth-required") return { kind: "pending" };
+      current.pendingUsageConsumes = current.pendingUsageConsumes.filter(id => id !== stableEventId);
       try { await plugin.saveSettings(); }
-      catch { plugin.settings.billing.pendingCreditSpends = [...new Set([...plugin.settings.billing.pendingCreditSpends, stableEventId])]; return { kind: "pending" }; }
-      return result.kind === "insufficient" ? { kind: "insufficient" } : { kind: "committed" };
+      catch { current.pendingUsageConsumes = [...new Set([...(current.pendingUsageConsumes ?? []), stableEventId])]; return { kind: "pending" }; }
+      settled = true;
+      return result.kind === "ok" ? { kind: "committed" } : { kind: "insufficient" };
     },
-    rollback: async () => {
-      if (settled) return;
-      plugin.settings.billing.pendingCreditSpends = plugin.settings.billing.pendingCreditSpends.filter((id) => id !== stableEventId);
-      await plugin.saveSettings();
-    },
+    rollback: async () => undefined,
   };
 }
 
@@ -327,6 +291,7 @@ export async function syncBalance(plugin: TundraPlugin): Promise<SyncResult> {
     if (response.status < 200 || response.status >= 300) return { kind: "error" };
     const balance = readBalance(response);
     plugin.settings.billing.purchasedCredits = balance;
+    plugin.settings.billing.freeUsesRemaining = Math.min(FREE_LIFETIME_USES, Math.max(0, Math.floor(Number(response.json?.data?.free_usage?.remaining) || 0)));
     await plugin.saveSettings();
     plugin.refreshBillingCredits?.();
     return { kind: "ok", balance };

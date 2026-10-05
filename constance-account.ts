@@ -1,3 +1,4 @@
+import { renderAccountGuidance } from "./account-guidance";
 import { Notice, Setting, requestUrl } from "obsidian";
 
 export const CONSTANCE_ACCOUNT_BASE_URL = "https://app.tutivsoft.com";
@@ -320,6 +321,7 @@ export function addBillingAccountSettings(containerEl: HTMLElement, adapter: Con
   let password = "";
   const section = containerEl.createDiv({ cls: "constance-account-billing-section" });
   section.createEl("h3", { text: "Account and billing" });
+  renderAccountGuidance(section, { appId: adapter.appId, connected: adapter.state.billingAccountLinked, defaultAllowance: 5, unit: "apply batches", workflow: "Choose a note or folder, select a frontmatter operation, then review the proposed changes before applying. You can undo the last batch from settings." });
   const state = adapter.state as ConstanceAccountState & Record<string, unknown>;
   const numericBalances = Object.entries(state)
     .filter(([key, value]) => /(?:credit|balance|remaining)/i.test(key) && typeof value === "number")
@@ -367,6 +369,12 @@ export function addBillingAccountSettings(containerEl: HTMLElement, adapter: Con
         new Notice(error instanceof Error ? error.message : "Connection failed. Please try again.");
         adapter.refresh?.();
       } finally { button.setDisabled(adapter.state.billingAccountLinked); }
+    }))
+    .addButton((button) => button.setButtonText("Create account").setDisabled(adapter.state.billingAccountLinked).onClick(async () => {
+      button.setDisabled(true);
+      try { await registerBillingAccount(adapter, password); password = ""; adapter.state.billingRegistrationPending = true; await adapter.persist(); adapter.refresh?.(); }
+      catch (error) { new Notice(error instanceof Error ? error.message : "Registration failed. Please try again."); }
+      finally { button.setDisabled(adapter.state.billingAccountLinked); }
     }))
     .addButton((button) => button.setButtonText("Sign out").setDisabled(!adapter.state.billingAccessToken && !adapter.state.billingRefreshToken).onClick(async () => {
       await signOutBillingAccount(adapter);

@@ -1,6 +1,6 @@
 # Tundra Frontmatter Wrangler
 
-Version: 3.6.35
+Version: 3.6.42. Validated for publication; release pending.
 
 ## Current purchase behavior
 
@@ -17,8 +17,6 @@ AI requests go directly to OpenRouter using TutivSoft's existing managed-key res
 Use **Connect** with your email and password. A new account is registered; an existing account is authenticated. New users must follow the emailed verification link and Connect again. Incorrect passwords offer password recovery; passwords are never saved. Paid purchases and free allowances belong to the authenticated account, not a locally entered email or an editable cached balance. Reinstalling does not replenish the same account's allowance.
 
 Constance is the billing authority. Tundra consumes one apply batch for each non-empty authorized write batch; preview, no-op planning, and rollback are free. Checkout return URLs and cached balances never grant credits. Payment fulfillment comes from the server’s verified Paddle webhook, and balances refresh from authenticated entitlements. Unknown usage or checkout results reuse the persisted operation ID; they must not create a new debit or alternative checkout.
-
-
 
 
 Tundra is a local-first Obsidian plugin for making recoverable frontmatter changes across notes. Deterministic operations run locally; optional AI generation and paid billing need network access. AI runs open a live queue that shows the submitted text excerpt, current target, elapsed seconds, and completion. Overlapping AI runs are serialized, and waiting runs can be cleared while the active request finishes. Before/after review is enabled by default for new installations. Tundra keeps a rollback journal.
@@ -39,7 +37,7 @@ For a configured run after setup, choose a **Default operation** and its values 
 
 ## Billing
 
-Tundra provides five lifetime free non-empty apply batches per account. Constance verifies the account allowance and purchased credits. AI is generated directly through OpenRouter; the same normal write flow applies the validated proposal, and billing is committed only after a changed note is read back and verified. No-op planning and rollback are free. The existing event ID is reused when a credit spend must be retried.
+Tundra provides five free non-empty apply batches lifetime per account. Constance verifies the account allowance and purchased credits. AI is generated directly through OpenRouter; the same normal write flow applies the validated proposal, and billing is committed only after a changed note is read back and verified. No-op planning and rollback are free. The existing event ID is reused when a credit spend must be retried.
 
 New offers cover 50, 150, 450, or 1,200 apply batches. Product names, offer descriptions, native quantities, Paddle prices, and availability load from Constance; checkout submits the selected configured price ID, and the plugin does not hard-code prices. Offers are joined by exact price ID; purchase is enabled only when Constance reports it available. Authenticated checkout uses the exact current price ID, and retries recover the same checkout and usage event. Existing paid rights remain available.
 
@@ -53,7 +51,7 @@ New offers cover 50, 150, 450, or 1,200 apply batches. Product names, offer desc
 - Format-only cleanup canonicalizes supported YAML formatting without changing values.
 - Generate or update selected top-level properties directly through OpenRouter with TutivSoft's existing managed key. Existing values are kept by default, or can be replaced explicitly. Results are parsed and sanitized in the plugin, reviewed, and can be rolled back.
 
-AI generation runs directly through OpenRouter with the existing managed-key resolver and configured model. Constance handles account credits, balances and Paddle checkout only. AI output is validated in the plugin; a credit is charged after a successful, read-back-verified note write.
+AI generation runs directly through OpenRouter with the existing managed-key resolver and fixed latest-model alias. Constance handles account credits, balances and Paddle checkout only. AI output is validated in the plugin; a credit is charged after a successful, read-back-verified note write.
 
 ## Diagnostics
 
@@ -75,9 +73,9 @@ MIT. See [LICENSE](LICENSE).
 
 ## Direct OpenRouter AI
 
-AI requests go directly to OpenRouter through the existing managed-key resolver. The model can be changed in Advanced settings. Constance handles credit accounts, Paddle price lookup, and checkout.
+AI requests go directly to OpenRouter through the existing managed-key resolver. Requests use the fixed model `~openai/gpt-luna-latest`; legacy saved choices do not change it. Constance handles credit accounts, Paddle price lookup, and checkout.
 
-## Workflow defaults (v3.6.35)
+## Workflow defaults
 
 Tundra runs the configured operation directly from note and folder commands. AI requests are serialized in the request queue; choose **Show AI request queue** in the command palette or Settings to inspect or clear waiting runs. Before/after review is enabled for new installations and follows the saved preference; account authorization is required for billable writes.
 
@@ -88,7 +86,7 @@ Account and billing controls appear at the top of settings. Select Connect with 
 
 ## Settings modes
 
-Simple mode contains the AI field tier, existing-value behavior, review preference, and default operation. Advanced adds execution details, relevant operation parameters, and diagnostics. Before/after review is enabled for new installations; existing preferences are preserved. AI calls OpenRouter directly with the existing managed key and model setting. Account, purchases, and balance refresh use Constance in both modes. Settings save immediately; the selected mode persists.
+Simple mode contains the AI field tier, existing-value behavior, review preference, and default operation. Advanced adds execution details, relevant operation parameters, and diagnostics. Before/after review is enabled for new installations; existing preferences are preserved. AI calls OpenRouter directly with the existing managed key and fixed latest-model alias. Account, purchases, and balance refresh use Constance in both modes. Settings save immediately; the selected mode persists.
 
 ## AI and billing flow
 The plugin sends selected note text directly to OpenRouter through the existing managed-key resolver. It validates JSON and filters suggestions to the requested frontmatter fields. Constance handles account credits and Paddle purchases only. The plugin checks the account allowance before AI generation and commits one existing idempotent credit event after each non-empty batch has been written and verified.
@@ -97,3 +95,11 @@ The plugin sends selected note text directly to OpenRouter through the existing 
 ## Manual installation
 
 Download `main.js`, `manifest.json`, and `styles.css` from the matching published release and place them in `.obsidian/plugins/tundra-frontmatter-wrangler/`, then enable the plugin in Obsidian.
+
+## Account lifetime allowance
+
+5 apply_batches lifetime per account. One unit per completed apply batch. Existing allowance consumption survives upgrades and reinstalls; lifetime allowances do not refill daily. Free units are used first and purchased units cover the remainder of the same operation. Native writes retain reserve, write, verify and finalize safeguards. Uncertain results retain the original event for recovery. The app retains its existing review and result-authorization workflow.
+
+The allowance belongs to the account and does not reset daily or after reinstalling. Free units are consumed first; purchased units cover the remainder. Current prices and available offers load from Constance in settings.
+
+AI requests use the fixed OpenRouter model `~openai/gpt-luna-latest`. Legacy saved model preferences do not change the request model.

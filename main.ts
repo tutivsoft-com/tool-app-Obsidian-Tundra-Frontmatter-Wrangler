@@ -1,7 +1,7 @@
 import { App, ButtonComponent, FuzzySuggestModal, Menu, Modal, Notice, Plugin, PluginSettingTab, requestUrl, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
 import { resolveOpenRouterKey } from "./remote-key";
 import { Frontmatter, Operation, parseFrontmatter, planOperation, ChangePlan } from "./core";
-import { checkUseAvailable, defaultBillingState, ensureBillingState, FREE_USES_PER_DAY, isBillableApply, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
+import { checkUseAvailable, defaultBillingState, ensureBillingState, FREE_LIFETIME_USES, isBillableApply, reserveUse, retryPendingCreditSpends, resumePendingCheckout, syncBalance } from "./billing";
 import { type BillingState } from "./billing-model";
 import { addLivePacks, resumePendingPriceCheckout } from "./billing-catalog";
 import { addBillingAccountSettings } from "./constance-account";
@@ -9,9 +9,9 @@ import { PluginSupport } from "./plugin-support";
 import { AI_FIELD_TIERS, AI_TIER_LABELS, DEFAULT_AI_TIER, MAX_AI_RESPONSE_TOKENS, buildAiSystemPrompt, sanitizeAiFrontmatter, type AiFieldTier } from "./ai-frontmatter";
 import { AiRequestQueue, type QueueReporter } from "./ai-request-queue";
 
-interface TundraSettings { billing: BillingState; settingsMode: "simple" | "advanced"; aiModel: string; aiTier: AiFieldTier; aiConflict: "keep" | "replace"; reviewBeforeApply: boolean; defaultOperation: Operation; lastBatch?: Batch; }
+interface TundraSettings { billing: BillingState; settingsMode: "simple" | "advanced"; onboardingShown?: boolean; aiModel: string; aiTier: AiFieldTier; aiConflict: "keep" | "replace"; reviewBeforeApply: boolean; defaultOperation: Operation; lastBatch?: Batch; }
 interface Batch { id: string; createdAt: string; operation: Operation; files: Array<{ path: string; original: string; after?: string }>; summary: { changed: number; skipped: number; failed: number; unchanged: number }; }
-const DEFAULT_SETTINGS: TundraSettings = { billing: defaultBillingState(), settingsMode: "simple", aiModel: "openai/gpt-5-mini", aiTier: DEFAULT_AI_TIER, aiConflict: "keep", reviewBeforeApply: true, defaultOperation: { kind: "ai-frontmatter", aiTier: DEFAULT_AI_TIER, aiFields: [...AI_FIELD_TIERS[DEFAULT_AI_TIER]], aiConflict: "keep" } };
+const DEFAULT_SETTINGS: TundraSettings = { billing: defaultBillingState(), settingsMode: "simple", aiModel: "~openai/gpt-luna-latest", aiTier: DEFAULT_AI_TIER, aiConflict: "keep", reviewBeforeApply: true, defaultOperation: { kind: "ai-frontmatter", aiTier: DEFAULT_AI_TIER, aiFields: [...AI_FIELD_TIERS[DEFAULT_AI_TIER]], aiConflict: "keep" } };
 function defaultOperation(kind: Operation["kind"], settings: TundraSettings): Operation {
   if (kind === "ai-frontmatter") return { kind, aiTier: settings.aiTier, aiFields: [...AI_FIELD_TIERS[settings.aiTier]], aiConflict: settings.aiConflict };
   if (kind === "rename") return { kind, oldKey: "", newKey: "", collision: "skip" };
@@ -54,6 +54,11 @@ export default class TundraPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("files-menu", (menu, files) => this.addFilesMenuItems(menu, files)));
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, _editor, info) => { const file = info.file; if (file instanceof TFile && file.extension.toLowerCase() === "md") this.addNoteMenuItem(menu, file); }));
     this.addSettingTab(new TundraSettingTab(this.app, this));
+    if (!this.settings.onboardingShown && !this.settings.billing.billingAccountLinked) {
+      this.settings.onboardingShown = true;
+      await this.saveSettings();
+      this.app.workspace.onLayoutReady(() => new TundraWelcomeModal(this.app, this).open());
+    }
   }
 
   private addNoteMenuItem(menu: Menu, file: TFile): void {
@@ -82,7 +87,22 @@ export default class TundraPlugin extends Plugin {
     if (this.settings.reviewBeforeApply) modal.open();
     else void modal.runConfiguredDirectly();
   }
+  addAccountGuidance(container: HTMLElement) {
+    if (this.settings.billing.billingAccountLinked) return;
+    addBillingAccountSettings(container, { state: this.settings.billing, appId: "tundra-frontmatter-wrangler", installationId: this.settings.billing.deviceId, appVersion: this.manifest.version, persist: () => this.saveSettings(), syncBalance: async () => { await syncBalance(this); }, refresh: () => { container.empty(); this.addAccountGuidance(container); } });
+  }
   async saveSettings() { if (!(this.settings.aiTier in AI_FIELD_TIERS)) this.settings.aiTier = DEFAULT_AI_TIER; if (this.settings.aiConflict !== "replace") this.settings.aiConflict = "keep"; await this.saveData(this.settings); }
+}
+
+class TundraWelcomeModal extends Modal {
+  constructor(app: App, private plugin: TundraPlugin) { super(app); }
+  onOpen() {
+    this.contentEl.createEl("h2", { text: "Welcome to Tundra" });
+    this.plugin.addAccountGuidance(this.contentEl.createDiv("tundra-account-guidance"));
+    this.contentEl.createEl("p", { text: "Choose a note or folder, select a frontmatter operation, then review the proposed changes before applying. You can undo the last batch from settings." });
+    new Setting(this.contentEl).addButton(button => button.setButtonText("Get started").setCta().onClick(() => { this.close(); new WranglerModal(this.app, this.plugin).open(); }));
+  }
+  onClose() { this.contentEl.empty(); }
 }
 
 class TundraSettingTab extends PluginSettingTab {
@@ -101,14 +121,14 @@ class TundraSettingTab extends PluginSettingTab {
     const billing = this.plugin.settings.billing;
     addBillingAccountSettings(containerEl, { state: billing, appId: "tundra-frontmatter-wrangler", installationId: billing.deviceId, appVersion: this.plugin.manifest.version, persist: () => this.plugin.saveSettings(), syncBalance: async () => { await syncBalance(this.plugin); }, refresh: () => this.display() });
     const creditsSetting = new Setting(containerEl).setName("Credits");
-    const showCredits = () => creditsSetting.setDesc(`${billing.freeUsesRemaining} of ${FREE_USES_PER_DAY} lifetime free apply batches remain · ${billing.purchasedCredits} purchased credits in the local mirror.`);
+    const showCredits = () => creditsSetting.setDesc(`${billing.freeUsesRemaining} of ${FREE_LIFETIME_USES} lifetime free apply batches remain · ${billing.purchasedCredits} purchased credits in the local mirror.`);
     showCredits();
     this.plugin.refreshBillingCredits = showCredits;
     void syncBalance(this.plugin).then(showCredits).catch(() => {});
     creditsSetting.addButton(button => button.setButtonText("Sync balance").onClick(async () => { button.setDisabled(true); try { const result = await syncBalance(this.plugin); new Notice(result.kind === "ok" ? `Tundra: synced ${result.balance} purchased credits.` : "Tundra: could not sync the purchased-credit balance.", result.kind === "ok" ? 3000 : 5000); this.display(); } catch { new Notice("Tundra: balance refresh failed. Check your connection and retry."); } finally { button.setDisabled(false); } }));
     containerEl.createEl("h3", { text: "AI frontmatter" });
     containerEl.createEl("p", { text: "AI suggestions are sent directly to OpenRouter using TutivSoft's existing managed key. Note content is sent only when you choose the AI operation. Constance handles account credits and Paddle purchases." });
-    if (advanced) new Setting(containerEl).setName("AI model").setDesc("Balanced is recommended for concise metadata; higher quality may take longer.").addDropdown(d => d.addOptions({ [this.plugin.settings.aiModel]: `${this.plugin.settings.aiModel} (saved model)`, "openai/gpt-5-mini": "Balanced (recommended)", "openai/gpt-5": "Higher quality" }).setValue(this.plugin.settings.aiModel).onChange(async value => { this.plugin.settings.aiModel = value; await this.plugin.saveSettings(); }));
+    if (advanced) new Setting(containerEl).setName("AI model").setDesc("Balanced is recommended for concise metadata; higher quality may take longer.").addDropdown(d => d.addOptions({ [this.plugin.settings.aiModel]: `${this.plugin.settings.aiModel} (saved model)`, "~openai/gpt-luna-latest": "Balanced (recommended)", "openai/gpt-5": "Higher quality" }).setValue(this.plugin.settings.aiModel).onChange(async value => { this.plugin.settings.aiModel = value; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Default AI field tier").setDesc("Used automatically when generating frontmatter. Standard is the recommended balance.").addDropdown(dropdown => dropdown.addOptions(AI_TIER_LABELS).setValue(this.plugin.settings.aiTier).onChange(async value => { this.plugin.settings.aiTier = value as AiFieldTier; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Existing AI properties").setDesc("Keep existing values by default, or replace them with suggestions.").addDropdown(dropdown => dropdown.addOptions({ keep: "Keep existing values", replace: "Replace with suggestions" }).setValue(this.plugin.settings.aiConflict).onChange(async value => { this.plugin.settings.aiConflict = value as "keep" | "replace"; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Review before applying").setDesc("Recommended: inspect before/after changes and confirm each batch. Turn off only to apply configured operations immediately.").addToggle(toggle => toggle.setValue(this.plugin.settings.reviewBeforeApply).onChange(async value => { this.plugin.settings.reviewBeforeApply = value; await this.plugin.saveSettings(); }));
@@ -168,6 +188,8 @@ class WranglerModal extends Modal {
     const c = this.contentEl;
     c.empty();
     c.createEl("div", { cls: "tundra-header", text: "Tundra Frontmatter Wrangler" });
+    const account = c.createDiv("tundra-account-guidance");
+    this.plugin.addAccountGuidance(account);
     const body = c.createDiv("tundra-body");
     if (this.step === 0) this.renderSetup(body);
     else if (this.step === 1) this.renderPreview(body);
@@ -496,7 +518,7 @@ class WranglerModal extends Modal {
 }
 
 async function requestAiFrontmatter(body: string, existing: Frontmatter, fields: string[], settings: TundraSettings): Promise<Frontmatter> {
-  const model = settings.aiModel.trim() || "openai/gpt-5-mini";
+  const model = "~openai/gpt-luna-latest";
   const input = { existingProperties: existing, noteBody: body.slice(0, MAX_AI_NOTE_CHARS), requestedProperties: fields };
   const response = await requestUrl({
     url: "https://openrouter.ai/api/v1/chat/completions",

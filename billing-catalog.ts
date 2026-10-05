@@ -72,7 +72,7 @@ export function addLivePacks(root: HTMLElement, plugin: TundraPlugin): void {
       const amount = typeof pack?.formatted_total === "string" ? pack.formatted_total : "";
       const available = pack?.available === true && !!priceId && Number.isSafeInteger(units) && units > 0 && !!amount;
       const description = [pack?.description, Number.isSafeInteger(units) && units > 0 ? `${units.toLocaleString()} ${unit}` : "", available ? "" : pack?.availability_reason || "Current price unavailable"].filter(Boolean).join(" · ");
-      new Setting(section).setName(pack?.name || pack?.code || "One-time offer").setDesc(description).addButton(button => {
+      new Setting(section).setName(pack?.price_name || pack?.name || pack?.code || "One-time offer").setDesc(description).addButton(button => {
         button.setButtonText(available ? `Buy ${amount}` : "Pricing unavailable").setDisabled(!available).onClick(async () => {
           button.setDisabled(true);
           try {
