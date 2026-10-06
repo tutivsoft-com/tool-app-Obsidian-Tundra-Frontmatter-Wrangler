@@ -19,7 +19,7 @@ const scalar = (value: string): Scalar => {
 export function parseFrontmatter(content: string): ParsedNote {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const normalized = content.replace(/\r\n/g, "\n");
-  if (normalized.startsWith("\uFEFF")) return { frontmatter: {}, body: content, hasFrontmatter: normalized.startsWith("\uFEFF---\n"), safe: false, error: "A UTF-8 BOM at the start of the note is not supported safely by this parser.", newline };
+  if (normalized.startsWith("\uFEFF")) return { frontmatter: {}, body: content, hasFrontmatter: normalized.startsWith("\uFEFF---\n"), safe: false, error: "This note has an unsupported text format before its frontmatter.", newline };
   if (!normalized.startsWith("---\n") && normalized !== "---") return { frontmatter: {}, body: content, hasFrontmatter: false, safe: true, newline };
   const closingDelimiter = /\n---[ \t]*(?:\n|$)/g;
   closingDelimiter.lastIndex = 3;
@@ -33,7 +33,7 @@ export function parseFrontmatter(content: string): ParsedNote {
   let listKey: string | undefined;
   for (const line of lines) {
     if (!line.trim()) continue;
-    if (line.trim().startsWith("#") || /\s+#/.test(line)) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Comments in frontmatter are not supported safely by this parser.", newline };
+    if (line.trim().startsWith("#") || /\s+#/.test(line)) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Frontmatter with comments cannot be updated. No changes were made.", newline };
     if (/^\s+-\s+/.test(line)) {
       if (!listKey || !Array.isArray(result[listKey])) return { frontmatter: {}, body: content, hasFrontmatter: true, safe: false, error: "Unsupported nested YAML structure.", newline };
       (result[listKey] as Scalar[]).push(scalar(line.replace(/^\s+-\s+/, "")));
@@ -75,7 +75,7 @@ export function normalizeTags(value: FrontmatterValue | undefined): { tags: stri
 const unique = (values: string[]) => [...new Set(values.map(v => v.trim()).filter(Boolean))];
 
 export function applyOperation(note: ParsedNote, operation: Operation): { note: ParsedNote; changed: boolean; reason?: string; conversion?: string } {
-  if (!note.safe) return { note, changed: false, reason: note.error ?? "Unsafe frontmatter" };
+  if (!note.safe) return { note, changed: false, reason: note.error ?? "Unsupported frontmatter" };
   const fm = structuredClone(note.frontmatter) as Frontmatter;
   let conversion: string | undefined;
   if (operation.kind === "rename" && operation.oldKey && operation.newKey && Object.prototype.hasOwnProperty.call(fm, operation.oldKey)) {
@@ -114,13 +114,13 @@ export function planOperation(notes: Array<{ path: string; content: string }>, o
   return notes.map(({ path, content }) => {
     const parsed = parseFrontmatter(content);
     if (operation.kind === "format") {
-      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsafe frontmatter", before: content };
+      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsupported frontmatter", before: content };
       if (!parsed.hasFrontmatter) return { path, status: "skipped", reason: "No frontmatter", before: content };
       const after = stringifyFrontmatter(parsed.frontmatter, parsed.body, parsed.newline);
       return after === content ? { path, status: "unchanged", before: content } : { path, status: "changed", before: content, after };
     }
     if (operation.kind === "ai-frontmatter") {
-      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsafe frontmatter", before: content };
+      if (!parsed.safe) return { path, status: "skipped", reason: parsed.error ?? "Unsupported frontmatter", before: content };
       if (aiErrors[path]) return { path, status: "failed", reason: aiErrors[path], before: content };
       const updates = aiUpdates[path];
       if (!updates || Object.keys(updates).length === 0) return { path, status: "skipped", reason: "AI returned no supported properties", before: content };

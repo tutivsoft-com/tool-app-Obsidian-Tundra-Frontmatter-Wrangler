@@ -26,10 +26,10 @@ export const AI_FIELD_TIERS: Record<AiFieldTier, readonly string[]> = {
 };
 
 export const AI_TIER_LABELS: Record<AiFieldTier, string> = {
-  "bare-minimum": "Bare Minimum (4 properties)",
+  "bare-minimum": "Essential (4 properties)",
   standard: "Standard (9 properties)",
   advanced: "Advanced (21 properties)",
-  huge: "Huge (50 properties)",
+  huge: "Comprehensive (50 properties)",
 };
 
 export function buildAiSystemPrompt(fields: readonly string[]): string {

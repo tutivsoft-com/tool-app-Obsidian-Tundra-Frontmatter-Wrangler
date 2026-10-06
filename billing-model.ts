@@ -52,7 +52,7 @@ export function normalizeBillingState(state: Partial<BillingState> | undefined, 
   next.billingAccessToken = typeof next.billingAccessToken === "string" ? next.billingAccessToken : "";
   next.billingRefreshToken = typeof next.billingRefreshToken === "string" ? next.billingRefreshToken : "";
   next.billingAccessExpiresAt = Number.isFinite(Number(next.billingAccessExpiresAt)) ? Number(next.billingAccessExpiresAt) : 0;
-  next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken);
+  next.billingAccountLinked = next.billingAccountLinked === true && Boolean(next.billingAccessToken || next.billingRefreshToken);
   next.freeUsesRemaining = Math.max(0, Math.min(FREE_LIFETIME_USES, Math.floor(Number(next.freeUsesRemaining) || 0)));
   next.pendingCreditSpends = [...new Set((next.pendingCreditSpends ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
   next.pendingUsageConsumes = [...new Set((next.pendingUsageConsumes ?? []).filter((id) => typeof id === "string" && id.startsWith("evt_")))];
