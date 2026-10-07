@@ -1,28 +1,65 @@
 # Tundra Frontmatter Wrangler
 
-Generate or edit top-level frontmatter and tags using a configured operation, with optional review and batch recovery.
+Organize Obsidian properties and tags with local cleanup, optional AI and batch recovery.
 
-Current version: **3.6.55**.
+**Best for:** Obsidian users organizing note metadata and repeatable property layouts.
 
-## First use
+## Top 10 features
 
-Enable the plugin and use its settings page. Simple is the default settings mode; Advanced exposes optional configuration. Configure an operation, then run Apply configured operation to current note or current folder. Open frontmatter wrangler exposes the operation interface.
+1. Edit current-note frontmatter.
+2. Apply operations across folders.
+3. Format supported frontmatter.
+4. Add or remove tags.
+5. Replace or normalize tags.
+6. Rename or remove properties.
+7. Reorder properties.
+8. Generate AI frontmatter in four tiers.
+9. Choose whether to keep existing values.
+10. Use optional review and batch recovery.
 
-Local operations format frontmatter, add/remove/replace/normalize tags, rename or remove properties, and reorder properties. AI frontmatter generation uses the configured property tier and keep/replace conflict choice. Standard is the default tier; review is off by default. Changes compare the original source, verify writes and retain batch recovery data.
+## Example workflow
 
-## Account and processing
+**Before:** Related notes use inconsistent tags and property names.
 
-AI requests go directly to OpenRouter using the fixed request model `~openai/gpt-luna-latest`. The existing managed-key resolver supplies the connection; legacy personal-key/model preferences do not override it. Constance handles account and billing operations.
+**After:** Normalize the tags and rename supported properties across the selected notes, reviewing changes if you choose.
 
-One apply-batch unit is consumed after changed notes are read back and verified. Unknown billing results retain the original event. AI calls go directly to OpenRouter; Constance remains the account and billing authority.
+## Pricing
 
-Connect the existing Constance account in settings; registration can require email verification before signing in again. Billing account passwords are sent for authentication and are not persisted. Access/refresh session data and a stable installation identity are saved locally. Account free usage and purchased balance are determined by Constance; cached values and checkout return URLs do not create entitlement. Catalog displays current formatted names, prices, availability and exact price IDs. Unknown usage and checkout results retain their original identities for recovery.
+A connected account includes 5 apply batches as a one-time lifetime allowance. Previous use counts toward that allowance.
 
-## Diagnostics
+| Pack | USD price | Included units |
+|---|---:|---:|
+| Starter | $2.00 | 50 apply batches |
+| Standard | $4.00 | 150 apply batches |
+| Pro | $8.00 | 450 apply batches |
+| Ultimate | $14.00 | 1,200 apply batches |
 
-Help is available in settings and through Open documentation. Open plugin settings and Copy full debug log are command-palette fallbacks. Debug logging defaults off for a new installation; failures and full Error objects/stacks still appear in the local developer console. Timed information is enabled by the debug preference. The copyable diagnostic buffer keeps at most 1,000 summarized events and excludes raw error text, stacks, note text, paths and credentials. Full console exceptions can contain whatever the failed operation placed in its error. Logs are not uploaded automatically.
+Packs are one-time purchases. Purchased units do not expire. Final tax and local currency are shown at checkout.
 
-## Documentation
+## What to know
 
+Local cleanup stays in the vault. Optional AI generation sends note content to an online service.
 
-License terms are in LICENSE.
+---
+
+## Discover Tundra Frontmatter Wrangler
+
+Whether you need to edit current-note frontmatter or apply operations across folders, Tundra Frontmatter Wrangler provides a focused workflow for Obsidian users organizing note metadata and repeatable property layouts.
+
+### Common questions
+
+**What can I use it for?**
+
+You can edit current-note frontmatter, add or remove tags or replace or normalize tags.
+
+**How do I get started?**
+
+Enable the plugin in Obsidian, open its settings and choose the action that fits your note. Connect your account for metered actions; the settings page shows your remaining allowance and available packs.
+
+### Search description
+
+Organize Obsidian properties and tags with local cleanup, optional AI and batch recovery. Designed for Obsidian users organizing note metadata and repeatable property layouts.
+
+### Related topics
+
+Obsidian frontmatter editor, tag normalization, YAML property cleanup, AI note metadata.
