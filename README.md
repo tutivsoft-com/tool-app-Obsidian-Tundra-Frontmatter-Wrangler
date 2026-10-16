@@ -63,3 +63,13 @@ Organize Obsidian properties and tags with local cleanup, optional AI and batch 
 ### Related topics
 
 Obsidian frontmatter editor, tag normalization, YAML property cleanup, AI note metadata.
+
+<!-- PORTFOLIO-METADATA:START -->
+## Repository metadata
+
+Current source version: **3.6.57** (2026-10-16).
+
+[Architecture](architecture.md) · [AI provenance](ai_model.md) · [History](HISTORY.md) · [Contributors](CONTRIBUTORS.md) · [Manifest](rahul_manifest.yaml).
+
+This maintenance update synchronizes source version metadata and excludes generated junk. Build, runtime, store and deployment verification are separate.
+<!-- PORTFOLIO-METADATA:END -->
