@@ -1,3 +1,4 @@
+import { initializeMatomo } from "./matomo-plugin";
 import { selectedFiles, markdownFile, registerSelectionAction } from "./selection-scope";
 import { diagnostics } from "./diagnostics";
 import { App, ButtonComponent, FuzzySuggestModal, Menu, Modal, Notice, Plugin, PluginSettingTab, requestUrl, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
@@ -34,6 +35,7 @@ export default class TundraPlugin extends Plugin {
   support!: PluginSupport;
   aiQueue!: AiRequestQueue;
   async onload() {
+    initializeMatomo(this);
 let diagnosticStartupEnd: () => void = () => {};
 
 const diagnosticEnd1 = diagnostics?.start?.("main.onload") ?? (() => {});
