@@ -66,6 +66,6 @@ Obsidian frontmatter editor, tag normalization, YAML property cleanup, AI note m
 
 ## Release
 
-Version 3.6.61 is prepared for manual validation and publication.
+Version 3.6.61 was published on 17 October 2026. Its final Obsidian Community audit completed successfully. [Release assets](https://github.com/tutivsoft-com/tool-app-Obsidian-Tundra-Frontmatter-Wrangler/releases/tag/3.6.61).
 
 Basic app usage events are sent to https://atcdn.cyou without note contents. Account and purchase operations use Constance.
