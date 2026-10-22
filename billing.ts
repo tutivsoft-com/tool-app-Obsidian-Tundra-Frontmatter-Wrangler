@@ -1,3 +1,6 @@
+import {syncEntitlements} from "./constance-v2";
+import {openAccountCheckout} from "./billing-checkout";
+import {resumeAccountCheckout} from "./billing-checkout";
 import { diagnostics } from "./diagnostics";
 import { resumePendingPriceCheckout } from "./billing-catalog";
 import { consumeAccountUnits } from "./account-credit-client";
@@ -43,7 +46,7 @@ export type SyncResult = { kind: "ok"; balance: number } | { kind: "error" };
 function generateEventId(): string {
   const bytes = new Uint8Array(12);
   window.crypto.getRandomValues(bytes);
-  return `evt_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  return `v2consume_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function generateIdempotencyKey(): string {
@@ -120,57 +123,7 @@ diagnostics.failure("billing.caught_3", caughtError2); plugin.settings.billing.p
 
 /** Read the canonical allowance before making a billable OpenRouter request. */
 export async function checkUseAvailable(plugin: TundraPlugin): Promise<boolean> {
-const diagnosticEnd4 = diagnostics?.start?.("billing.checkUseAvailable") ?? (() => {});
-try {
-
-  const state = plugin.settings.billing;
-  if ((!state.billingAccessToken && !state.billingRefreshToken) || !state.billingAccountLinked) {
-    plugin.support.warn("billing.entitlement.rejected", { outcome: "account_not_signed_in" });
-    new Notice("Tundra: sign in or create an account in plugin settings before using AI.", 5000);
-    return false;
-  }
-  await retryPendingCreditSpends(plugin);
-  if ((plugin.settings.billing.pendingCreditSpends.length > 0 || (plugin.settings.billing.pendingUsageConsumes?.length ?? 0) > 0)) {
-    plugin.support.warn("billing.entitlement.rejected", { outcome: "pending_credit_reconciliation" });
-    new Notice("Tundra: a previous charge is still being confirmed. Try again when connected.", 5000);
-    return false;
-  }
-  try {
-    const query = new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId });
-    const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
-      url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${query.toString()}`,
-      method: "GET",
-    });
-    if (response.status === 401 || response.status === 403 || response.status === 404) {
-      clearBillingSession(state);
-      await plugin.saveSettings();
-      plugin.support.warn("billing.entitlement.rejected", { outcome: "account_session_invalid", httpStatus: response.status });
-      new Notice("Tundra: your session expired. Sign in again before using AI.", 5000);
-      return false;
-    }
-    if (response.status < 200 || response.status >= 300) {
-      plugin.support.warn("billing.entitlement.rejected", { outcome: "http_error", httpStatus: response.status });
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const entitlements = response.json?.data;
-    const freeRemaining = Math.max(0, Number(entitlements?.free_usage?.remaining) || 0);
-    const paidBalance = Math.max(0, Number(entitlements?.credits?.total_available ?? entitlements?.credits?.balance) || 0);
-    const today = localCalendarDate();
-    state.freeUsageDate = today;
-    state.freeUsesRemaining = Math.min(FREE_LIFETIME_USES, Math.floor(freeRemaining));
-    state.purchasedCredits = Math.floor(paidBalance);
-    await plugin.saveSettings();
-    if (freeRemaining > 0 || paidBalance > 0) return true;
-    new Notice("Tundra: your free credits are exhausted and no purchased credits remain.", 5000);
-    return false;
-  } catch (caughtError4) {
-diagnostics.failure("billing.caught_5", caughtError4);
-    plugin.support.warn("billing.entitlement.rejected", { outcome: "request_failed" });
-    new Notice("Tundra: your account could not be verified. No AI request was sent.", 5000);
-    return false;
-  }
-
-} catch (diagnosticError4) { diagnostics?.failure?.("billing.checkUseAvailable", diagnosticError4); throw diagnosticError4; } finally { diagnosticEnd4(); }
+try {await retryPendingCreditSpends(plugin);const state=plugin.settings.billing;if(state.pendingCreditSpends.length||state.pendingUsageConsumes?.length||state.pendingFreeUsageClaim)return false;await syncEntitlements(state,()=>plugin.saveSettings());return state.freeUsesRemaining+state.purchasedCredits>0;}catch(error){diagnostics.failure("billing.balance",error);return false;}
 }
 
 async function pollCheckoutSettlement(plugin: TundraPlugin, checkoutId: string): Promise<void> {
@@ -183,7 +136,7 @@ try {
     if (!state.pendingCheckout || state.pendingCheckout.checkoutId !== checkoutId || (!state.billingAccessToken && !state.billingRefreshToken)) return;
     try {
       const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
-        url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkouts/${encodeURIComponent(checkoutId)}`,
+        url: `${CONSTANCE_BASE_URL}/api/v2/billing/checkouts/${encodeURIComponent(checkoutId)}`,
         method: "GET",
       });
       if (response.status === 401 || response.status === 403) {
@@ -227,7 +180,7 @@ try {
   state.pendingCheckout = pending;
   await plugin.saveSettings();
   const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
-    url: `${CONSTANCE_BASE_URL}/api/v1/billing/checkout`,
+    url: `${CONSTANCE_BASE_URL}/api/v2/billing/checkout`,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -261,10 +214,7 @@ try {
 }
 
 export function resumePendingCheckout(plugin: TundraPlugin): void {
-  const pending = plugin.settings.billing.pendingCheckout;
-  if (!pending) return;
-  if (pending.checkoutId) void diagnostics.guard("billing.background_7", () => (pollCheckoutSettlement(plugin, pending.checkoutId!)));
-  else void diagnostics.guard("billing.background_8", () => (startCheckout(plugin, pending.planCode, false)));
+resumePendingPriceCheckout(plugin);
 }
 
 export async function reserveUse(plugin: TundraPlugin): Promise<UseReservation | null> {
@@ -323,43 +273,11 @@ export function isBillableApply(changedCount: number): boolean {
 }
 
 export async function syncBalance(plugin: TundraPlugin): Promise<SyncResult> {
-const diagnosticEnd10 = diagnostics?.start?.("billing.syncBalance") ?? (() => {});
-try {
-
-  plugin.settings.billing = ensureBillingState(plugin.settings.billing);
-  const state = plugin.settings.billing;
-  resumePendingPriceCheckout(plugin);
-  if ((!state.billingAccessToken && !state.billingRefreshToken) || !state.billingAccountLinked) return { kind: "error" };
-  try {
-    const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
-      url: `${CONSTANCE_BASE_URL}/api/v1/billing/entitlements/me?${new URLSearchParams({ app_id: CONSTANCE_APP_ID, installation_id: state.deviceId }).toString()}`,
-      method: "GET",
-    });
-    if (response.status === 401 || response.status === 403 || response.status === 404) {
-      clearBillingSession(state);
-      await plugin.saveSettings();
-      return { kind: "error" };
-    }
-    if (response.status < 200 || response.status >= 300) return { kind: "error" };
-    const paid = response.json?.data?.credits?.total_available ?? response.json?.data?.credits?.balance;
-    const free = response.json?.data?.free_usage?.remaining;
-    if (paid == null || String(paid).trim() === "" || !Number.isFinite(Number(paid)) || Number(paid) < 0 || !Number.isFinite(free) || free < 0) return { kind: "error" };
-    const balance = readBalance(response);
-    plugin.settings.billing.purchasedCredits = balance;
-    plugin.settings.billing.freeUsesRemaining = Math.floor(free);
-    await plugin.saveSettings();
-    plugin.refreshBillingCredits?.();
-    return { kind: "ok", balance };
-  } catch (error) {
-diagnostics.failure("billing.caught_extra_2", error); diagnostics?.legacy?.("warn", "billing.tundra_constance_balance_sync_failed"); return { kind: "error" }; }
-
-} catch (diagnosticError10) { diagnostics?.failure?.("billing.syncBalance", diagnosticError10); throw diagnosticError10; } finally { diagnosticEnd10(); }
+await syncEntitlements(plugin.settings.billing,()=>plugin.saveSettings());
+(plugin as any).refreshBillingCredits?.();
+return {kind:"ok",balance:plugin.settings.billing.purchasedCredits};
 }
 
 export function openCheckout(plugin: TundraPlugin, tier: keyof typeof TUNDRA_PLAN_CODES): void {
-  void diagnostics.guard("billing.background_11", () => (startCheckout(plugin, TUNDRA_PLAN_CODES[tier]).catch((error) => {
-diagnostics.failure("billing.rejected_1", error);
-    diagnostics?.legacy?.("error", "billing.tundra_authenticated_checkout_failed");
-    new Notice("Tundra: checkout could not be started. Retry from settings.", 5000);
-  })));
+void openAccountCheckout({state:plugin.settings.billing,appId:"tundra-frontmatter-wrangler",installationId:plugin.settings.billing.deviceId,persist:()=>plugin.saveSettings(),syncBalance:async()=>{await syncEntitlements(plugin.settings.billing,()=>plugin.saveSettings());(plugin as any).refreshBillingCredits?.();},refreshSession:()=>refreshBillingSession(plugin.settings.billing,()=>plugin.saveSettings())},"onetime");
 }

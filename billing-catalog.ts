@@ -1,154 +1,74 @@
-import { renderLoyaltyDiscount } from "./loyalty-discount";
+import { watchCheckoutProgress } from "./billing-progress";
 import { diagnostics } from "./diagnostics";
-import { Notice, Setting, requestUrl } from "obsidian";
-import type TundraPlugin from "./main";
-import { CONSTANCE_ACCOUNT_BASE_URL, clearBillingSession, requestAuthenticatedBilling } from "./constance-account";
-import { syncBalance } from "./billing";
-
-const APP_ID = "tundra-frontmatter-wrangler";
-const checkoutPolls = new WeakMap<object, Set<string>>();
-const checkoutRetries = new WeakMap<object, ReturnType<typeof setTimeout>>();
-
-function wait(milliseconds: number): Promise<void> { return new Promise(resolve => setTimeout(diagnostics.wrap("billing-catalog.timer_1", resolve), milliseconds)); }
-
-async function pollPriceCheckoutSettlement(plugin: TundraPlugin, checkoutId: string): Promise<void> {
-const diagnosticEnd1 = diagnostics?.start?.("billing-catalog.pollPriceCheckoutSettlement") ?? (() => {});
-try {
-
-  let active = checkoutPolls.get(plugin);
-  if (!active) { active = new Set<string>(); checkoutPolls.set(plugin, active); }
-  if (active.has(checkoutId)) return;
-  active.add(checkoutId);
-  try {
-    for (let attempt = 0; attempt < 12; attempt++) {
-      await wait(5000);
-      const state = plugin.settings.billing;
-      const pending = state.pendingPriceCheckout;
-      if (!pending || pending.checkoutId !== checkoutId || (!state.billingAccessToken && !state.billingRefreshToken) || !state.billingAccountLinked || pending.owner !== state.billingEmail) return;
-      try {
-        const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
-          url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/checkouts/${encodeURIComponent(checkoutId)}`,
-          method: "GET",
-        });
-        if (response.status === 401 || response.status === 403) {
-          clearBillingSession(state);
-          await plugin.saveSettings();
-          return;
-        }
-        if (response.status < 200 || response.status >= 300) continue;
-        const checkout = response.json?.data;
-        const terminal = checkout?.settled === true || ["completed", "fulfilled", "failed", "canceled", "cancelled", "expired", "voided", "rejected"].includes(checkout?.status);
-        if (!terminal || state.pendingPriceCheckout !== pending) continue;
-        const balance = await syncBalance(plugin);
-        if (balance.kind !== "ok") continue;
-        if (state.pendingPriceCheckout !== pending || pending.owner !== state.billingEmail) return;
-        state.pendingPriceCheckout = undefined;
-        await plugin.saveSettings();
-        plugin.refreshBillingCredits?.();
-        new Notice(checkout?.settled === true || ["completed", "fulfilled"].includes(checkout?.status)
-          ? "Tundra: payment settled and your credit balance was refreshed."
-          : "Tundra: purchase did not complete; your current balance was refreshed.", 5000);
-        return;
-      } catch (error) {
-diagnostics.failure("billing-catalog.caught_extra_1", error); diagnostics?.legacy?.("warn", "billing-catalog.tundra_paddle_checkout_settlement_poll_failed"); }
-    }
-  } finally { active.delete(checkoutId); scheduleCheckoutRetry(plugin); }
-
-} catch (diagnosticError1) { diagnostics?.failure?.("billing-catalog.pollPriceCheckoutSettlement", diagnosticError1); throw diagnosticError1; } finally { diagnosticEnd1(); }
+import { Setting, requestUrl } from "obsidian";
+import { refreshBillingSession } from "./constance-account";
+import { openAccountCheckout, resumeAccountCheckout, recoverAccountCheckout, cancelAccountCheckout } from "./billing-checkout";
+import { CONSTANCE_API, BILLING_UNIT } from "./constance-v2";
+interface BillingCatalogHost { appId: string; installationId: string; state: any; persist(): Promise<void>; syncBalance(): Promise<void>; resumeCheckout?(): void }
+/** Only server offers granting this app's metered unit can become purchase buttons. */
+export function joinPublicPacks(products: any, appId: string): any[] {
+  if (products?.app_id !== appId || !Array.isArray(products.offers)) return [];
+  return products.offers.filter((offer: any) => offer?.kind === "credits").map((pack: any) => {
+    const priceId = typeof pack.code === "string" ? pack.code : "";
+    const units = pack.grants?.units, unit = pack.grants?.unit;
+    const available = !!priceId && unit === BILLING_UNIT && Number.isSafeInteger(units) && units > 0
+      && Number.isInteger(pack.currency_exponent) && pack.currency_exponent >= 0 && pack.currency_exponent <= 4
+      && Number.isSafeInteger(pack.amount) && pack.amount > 0 && typeof pack.currency === "string" && /^[A-Z]{3}$/.test(pack.currency);
+    let amount = "";
+    if (available) { try { amount = new Intl.NumberFormat(undefined, { style: "currency", currency: pack.currency }).format(pack.amount / (10 ** pack.currency_exponent)); } catch (_) { /* Invalid currency remains unavailable. */ } }
+    return { pack, priceId, units, unit, amount, available: available && !!amount };
+  });
 }
-
-function scheduleCheckoutRetry(plugin: TundraPlugin): void {
-  const state = plugin.settings.billing;
-  if (!state.pendingPriceCheckout?.checkoutId || !state.billingAccountLinked || state.pendingPriceCheckout.owner !== state.billingEmail || checkoutRetries.has(plugin)) return;
-  const timer = setTimeout(() => { checkoutRetries.delete(plugin); resumePendingPriceCheckout(plugin); }, 15000);
-  checkoutRetries.set(plugin, timer);
-  (timer as any).unref?.();
-}
-
-export function resumePendingPriceCheckout(plugin: TundraPlugin): void {
-  const pending = plugin.settings.billing.pendingPriceCheckout;
-  if (pending?.checkoutId && plugin.settings.billing.billingAccountLinked && pending.owner === plugin.settings.billing.billingEmail) void diagnostics.guard("billing-catalog.background_2", () => (pollPriceCheckoutSettlement(plugin, pending.checkoutId!)));
-}
-
-function data(response: any): any {
-  if (response.status < 200 || response.status >= 300) throw new Error(response.json?.detail?.message || `Billing is temporarily unavailable. Try again shortly.`);
-  return response.json?.data;
-}
-
-export function addLivePacks(root: HTMLElement, plugin: TundraPlugin): void {
+function renderLivePacks(root: HTMLElement, host: BillingCatalogHost): void {
+  const checkoutHost = { ...host, syncBalance: async () => { await host.syncBalance(); }, refreshSession: () => refreshBillingSession(host.state, host.persist) };
+  const progress = watchCheckoutProgress(root, host.state);
+  resumeAccountCheckout(checkoutHost);
+  let recovery: Setting | undefined;
+  const showRecovery = () => {
+    if (recovery || !host.state.pendingAccountCheckout) return;
+    recovery = new Setting(root).setName("Current purchase").setDesc("Cancels an unpaid purchase so you can buy again. Completed purchases stay safe.")
+      .addButton(button => button.setButtonText("Check payment").onClick(async () => {
+        button.setDisabled(true);
+        try { await recoverAccountCheckout(checkoutHost); }
+        finally { button.setDisabled(false); }
+      }))
+      .addButton(button => button.setButtonText("Cancel current purchase").onClick(async () => {
+        button.setDisabled(true);
+        try { await cancelAccountCheckout(checkoutHost); }
+        finally { button.setDisabled(false); }
+      }));
+  };
+  showRecovery();
+  let selectedCurrency = "USD";
+  let renderOffers = () => {};
   const section = root.createDiv({ cls: "ui-billing-packs" });
-  renderLoyaltyDiscount(section);
-  const status = section.createEl("p", { text: "Loading prices…" });
-  void diagnostics.guard("billing-catalog.background_3", () => ((diagnostics?.request?.("network.billing-catalog.addLivePacks", requestUrl, { url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/public-products?app_id=${APP_ID}`, method: "GET", throw: false }) ?? requestUrl({ url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/public-products?app_id=${APP_ID}`, method: "GET", throw: false })).then((productsResponse) => {
-    const products = data(productsResponse);
-    const configured = products?.app_id === APP_ID && Array.isArray(products?.packs) ? products.packs : [];
-    if (!configured.length) throw new Error("No credit packs are currently available.");
-    status.setText("Applicable taxes are calculated at checkout.");
-    for (const pack of configured) {
-      const priceId = typeof pack?.price_id === "string" ? pack.price_id : "";
-      const units = Number(pack?.native_units);
-      const unit = typeof pack?.unit === "string" && pack.unit.trim() ? pack.unit.trim() : "apply batches";
-      const amount = typeof pack?.formatted_total === "string" ? pack.formatted_total : "";
-      const available = pack?.available === true && !!priceId && Number.isSafeInteger(units) && units > 0 && !!amount;
-      const description = [pack?.description, Number.isSafeInteger(units) && units > 0 ? `${units.toLocaleString()} ${unit}` : "", available ? "" : pack?.availability_reason || "Current price unavailable"].filter(Boolean).join(" · ");
-      new Setting(section).setName(pack?.price_name || pack?.name || pack?.code || "Credit pack").setDesc(description).addButton(button => {
-        button.setButtonText(available ? `Buy ${amount}` : "Pricing unavailable").setDisabled(!available).onClick(async () => {
-return diagnostics.guard("billing-catalog.control_4", async () => {
-const diagnosticEnd2 = diagnostics?.start?.("control.4720.onClick") ?? (() => {});
-try {
-
+  new Setting(section).setName("Currency").addDropdown(dropdown => {
+    dropdown.addOption("USD", "USD");
+    dropdown.setValue("USD").onChange(value => { selectedCurrency = value; renderOffers(); });
+  });
+  const status = section.createEl("p", { text: "Loading prices..." });
+  const packs = section.createDiv();
+  void diagnostics.guard("billing-catalog.load", async () => {
+    try {
+      const response = await requestUrl({ url: `${CONSTANCE_API}/billing/offers?app_id=${encodeURIComponent(host.appId)}`, method: "GET", throw: false });
+      if (response.status !== 200) throw new Error("Prices unavailable");
+      const offers = joinPublicPacks(response.json?.data, host.appId);
+      if (!offers.length) throw new Error("Prices unavailable");
+      renderOffers = () => {
+      packs.empty();
+      const matching = offers.filter(offer => offer.pack.currency === selectedCurrency);
+      status.setText(matching.length ? "Applicable taxes are calculated at checkout." : "No packs available in this currency.");
+      for (const { pack, priceId, units, unit, amount, available } of matching) {
+        new Setting(packs).setName(pack.name || "Credit offer").setDesc(`${pack.description || ""} ${units?.toLocaleString()} ${unit}. Tax: ${pack.tax_mode || "shown at checkout"}.`).addButton(button => button.setButtonText(available ? `Buy ${amount}` : "Pricing unavailable").setDisabled(!available).onClick(async () => {
           button.setDisabled(true);
-          try {
-            const state = plugin.settings.billing;
-            if (!state.billingAccountLinked || (!state.billingAccessToken && !state.billingRefreshToken)) throw new Error("Connect your account before buying credits.");
-            let pending = state.pendingPriceCheckout;
-            if (pending?.owner && pending.owner !== state.billingEmail) throw new Error("Sign in to the account that started the pending purchase.");
-            if (pending?.checkoutId) {
-              const check = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), { url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/checkouts/${encodeURIComponent(pending.checkoutId)}`, method: "GET" });
-              const checkout = data(check);
-              if (checkout?.settled === true || ["completed", "fulfilled", "canceled", "cancelled", "failed", "expired", "voided", "rejected"].includes(checkout?.status)) {
-                const balance = await syncBalance(plugin);
-                if (balance.kind !== "ok") { resumePendingPriceCheckout(plugin); throw new Error("Your purchase status is saved, but the balance could not be refreshed. Use Refresh balance to retry."); }
-                if (state.pendingPriceCheckout !== pending || pending.owner !== state.billingEmail) return;
-                state.pendingPriceCheckout = undefined;
-                await plugin.saveSettings();
-                plugin.refreshBillingCredits?.();
-                new Notice(checkout?.settled === true || ["completed", "fulfilled"].includes(checkout?.status)
-                  ? "Tundra: payment settled and your credit balance was refreshed."
-                  : "Tundra: purchase did not complete; your current balance was refreshed.", 5000);
-                return;
-              }
-            }
-            if (pending && pending.priceId !== priceId) throw new Error("A purchase is already pending. Resolve it before starting another.");
-            pending ??= { idempotencyKey: `checkout_${crypto.randomUUID()}`, priceId, owner: state.billingEmail };
-            state.pendingPriceCheckout = pending;
-            await plugin.saveSettings();
-            const response = await requestAuthenticatedBilling(state, () => plugin.saveSettings(), {
-              url: `${CONSTANCE_ACCOUNT_BASE_URL}/api/v1/billing/checkout-price`, method: "POST",
-              headers: { "Content-Type": "application/json", "Idempotency-Key": pending.idempotencyKey },
-              body: JSON.stringify({ app_id: APP_ID, installation_id: state.deviceId, price_id: priceId, quantity: 1 }),
-            });
-            if (response.status === 401 || response.status === 403) { clearBillingSession(state); await plugin.saveSettings(); throw new Error("Your session expired. Sign in again."); }
-            const checkout = data(response);
-            const checkoutId = String(checkout?.checkout_id || "");
-            if (!checkoutId) throw new Error("Checkout is still being confirmed. Retry this same offer to recover it safely.");
-            pending.checkoutId = checkoutId;
-            await plugin.saveSettings();
-            if (typeof checkout.checkout_url === "string" && checkout.checkout_url) window.open(checkout.checkout_url, "_blank", "noopener");
-            else new Notice("Checkout is being confirmed. Your pending purchase is saved.");
-            await syncBalance(plugin);
-            plugin.refreshBillingCredits?.();
-            void diagnostics.guard("billing-catalog.background_5", () => (pollPriceCheckoutSettlement(plugin, checkoutId)));
-          } catch (error) {
-diagnostics.failure("billing-catalog.caught_6", error);
-            new Notice(error instanceof Error ? error.message : "Checkout unavailable.");
-          } finally { button.setDisabled(!available); }
-
-} catch (diagnosticError2) { diagnostics?.failure?.("control.4720.onClick", diagnosticError2); throw diagnosticError2; } finally { diagnosticEnd2(); }
-
-});
-});
-      });
-    }
-  }).catch((error) => { diagnostics.failure("billing-catalog.rejected_1", error); return (status.setText(error instanceof Error ? error.message : "Pricing temporarily unavailable. Buying is disabled.")); })));
+          try { const operation = openAccountCheckout(checkoutHost, priceId); progress.refresh(); await operation; } finally { progress.refresh(); button.setDisabled(!available); showRecovery(); }
+        }));
+      }
+      };
+      renderOffers();
+    } catch (error) { diagnostics.failure("billing-catalog.load", error); status.setText("Pricing temporarily unavailable. Refresh before buying."); }
+  });
 }
+
+export function addLivePacks(root:HTMLElement,plugin:any):void{const state=plugin.settings.billing;renderLivePacks(root,{state,appId:"tundra-frontmatter-wrangler",installationId:state.deviceId,persist:()=>plugin.saveSettings(),syncBalance:async()=>{const {syncEntitlements}=await import("./constance-v2");await syncEntitlements(state,()=>plugin.saveSettings());plugin.refreshBillingCredits?.();}});}
+export function resumePendingPriceCheckout(plugin:any):void{const state=plugin.settings.billing;resumeAccountCheckout({state,appId:"tundra-frontmatter-wrangler",installationId:state.deviceId,persist:()=>plugin.saveSettings(),syncBalance:async()=>{const {syncEntitlements}=await import("./constance-v2");await syncEntitlements(state,()=>plugin.saveSettings());},refreshSession:()=>refreshBillingSession(state,()=>plugin.saveSettings())});}

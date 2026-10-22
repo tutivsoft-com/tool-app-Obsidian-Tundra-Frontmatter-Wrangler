@@ -1,71 +1,29 @@
 # Tundra Frontmatter Wrangler
 
-Organize Obsidian properties and tags with local cleanup, optional AI and batch recovery.
+Apply the existing frontmatter and tag operations to selected notes.
 
-**Best for:** Obsidian users organizing note metadata and repeatable property layouts.
+## Use
 
-## Top 10 features
+Install or update the plugin through Obsidian Community plugins, enable it, and open its settings. Use the existing plugin commands for the selected note, text or files. Existing preferences and local recovery records are retained.
 
-1. Edit current-note frontmatter.
-2. Apply operations across folders.
-3. Format supported frontmatter.
-4. Add or remove tags.
-5. Replace or normalize tags.
-6. Rename or remove properties.
-7. Reorder properties.
-8. Generate AI frontmatter in four tiers.
-9. Choose whether to keep existing values.
-10. Use optional review and batch recovery.
+## Account and billing
 
-## Example workflow
+Connect your Constance account in plugin settings. If you create an account, confirm the email link and then connect again. Authentication, current offers, free allowance, purchased balance and payment confirmation use the Constance v2 service at https://app.tutivsoft.com.
 
-**Before:** Related notes use inconsistent tags and property names.
+Current paid names, descriptions, prices, currencies and included units come from the payment provider through Constance. Refresh the displayed offers before buying. If current pricing cannot be verified, buying is unavailable. Only canonical payment fulfillment grants credits. A completed purchase stays saved until the refreshed balance is saved and acknowledged. Pending requests retain their original identity after a retry or restart. Use Check payment or Cancel current purchase in the billing section when needed.
 
-**After:** Normalize the tags and rename supported properties across the selected notes, reviewing changes if you choose.
+New purchases use Paddle and USD. Existing historical purchases retain their original provider. No payment credentials are bundled in the plugin.
 
-## Pricing
+## Privacy and recovery
 
-A connected account includes 5 apply batches as a one-time lifetime allowance. Previous use counts toward that allowance.
+Account requests send authentication and billing information to Constance. Passwords are not saved. Session credentials and recovery state are kept in local plugin settings. Billing requests do not contain note or image contents. Requested AI actions send the selected input directly to the existing AI service. Basic app usage events use the existing analytics service without note contents. Diagnostic logs stay local unless you copy and share them.
 
-| Pack | USD price | Included units |
-|---|---:|---:|
-| Starter | $2.00 | 50 apply batches |
-| Standard | $4.00 | 150 apply batches |
-| Pro | $8.00 | 450 apply batches |
-| Ultimate | $14.00 | 1,200 apply batches |
-
-Packs are one-time purchases. Purchased units do not expire. Final tax and local currency are shown at checkout.
-
-## What to know
-
-Local cleanup stays in the vault. Optional AI generation sends note content to an online service.
-
----
-
-## Discover Tundra Frontmatter Wrangler
-
-Whether you need to edit current-note frontmatter or apply operations across folders, Tundra Frontmatter Wrangler provides a focused workflow for Obsidian users organizing note metadata and repeatable property layouts.
-
-### Common questions
-
-**What can I use it for?**
-
-You can edit current-note frontmatter, add or remove tags or replace or normalize tags.
-
-**How do I get started?**
-
-Enable the plugin in Obsidian, open its settings and choose the action that fits your note. Connect your account for metered actions; the settings page shows your remaining allowance and available packs.
-
-### Search description
-
-Organize Obsidian properties and tags with local cleanup, optional AI and batch recovery. Designed for Obsidian users organizing note metadata and repeatable property layouts.
-
-### Related topics
-
-Obsidian frontmatter editor, tag normalization, YAML property cleanup, AI note metadata.
+Uncertain older billing records are retained and are never replayed as new v2 charges. Connect the original account and contact support if an earlier operation needs recovery.
 
 ## Release
 
-Version 3.6.61 was published on 17 October 2026. Its final Obsidian Community audit completed successfully. [Release assets](https://github.com/tutivsoft-com/tool-app-Obsidian-Tundra-Frontmatter-Wrangler/releases/tag/3.6.61).
+Version 3.6.63 is prepared for the manual Community publication checks. A source push alone does not publish a plugin update. Installable updates use a matching version tag and the three assets main.js, manifest.json and styles.css.
 
-Basic app usage events are sent to https://atcdn.cyou without note contents. Account and purchase operations use Constance.
+## Support
+
+Use the plugin's Help or Open documentation command and the support links in its manifest. For a billing problem, retain the original purchase or operation identity and use the account portal. Do not share passwords or session tokens.
