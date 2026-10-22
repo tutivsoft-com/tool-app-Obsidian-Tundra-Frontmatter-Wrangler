@@ -226,7 +226,7 @@ diagnosticStage19();
 
     const creditsSetting = new Setting(containerEl).setName("Credits");
     // Obsidian Setting.then is a fluent builder, so Promise callbacks must return void.
-    const showCredits = (): void => { creditsSetting.setDesc(`${billing.freeUsesRemaining} of ${FREE_LIFETIME_USES} free batches remain · ${billing.purchasedCredits} purchased credits (last updated balance).`); };
+    const showCredits = (): void => { creditsSetting.setDesc(!billing.billingAccountLinked ? "Connect your account to load your free and purchased batches." : `${billing.freeUsesRemaining} of ${FREE_LIFETIME_USES} free batches remain · ${billing.purchasedCredits} purchased credits (last updated balance).`); };
     const diagnosticStage20 = diagnostics?.start?.("settings.render.stage_4") ?? (() => {});
 showCredits();
 diagnosticStage20();
