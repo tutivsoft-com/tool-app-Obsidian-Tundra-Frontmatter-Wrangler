@@ -24,7 +24,7 @@ Uncertain older billing records are retained and are never replayed as new v2 ch
 
 Version 3.6.73: All eight local frontmatter and tag operations retain exact rollback. AI and folder operations include current diagnostics and account feedback.
 
-Use the matching GitHub release for installation availability. Community directory review is separate from source validation.
+Obsidian Community release **3.6.73** requires Obsidian **1.5.0** or later. [GitHub release](https://github.com/tutivsoft-com/tool-app-Obsidian-Tundra-Frontmatter-Wrangler/releases/tag/3.6.73).
 
 ## Support
 
