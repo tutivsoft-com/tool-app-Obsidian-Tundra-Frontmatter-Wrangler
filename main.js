@@ -3195,7 +3195,7 @@ var TundraPlugin = class extends import_obsidian13.Plugin {
     const diagnosticEnd1 = (_c2 = (_b2 = (_a2 = diagnostics) == null ? void 0 : _a2.start) == null ? void 0 : _b2.call(_a2, "main.onload")) != null ? _c2 : (() => {
     });
     try {
-      this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in Settings to preview and confirm changes before applying a batch."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy diagnostic log"], troubleshooting: ["Use Copy diagnostic log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
+      this.support = new PluginSupport(this, { name: "Tundra AI Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in Settings to preview and confirm changes before applying a batch."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy diagnostic log"], troubleshooting: ["Use Copy diagnostic log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
       this.support.start();
       this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
       diagnosticStartupEnd = (_f2 = (_e2 = (_d2 = diagnostics) == null ? void 0 : _d2.start) == null ? void 0 : _e2.call(_d2, "startup.initialize")) != null ? _f2 : (() => {
@@ -3354,7 +3354,7 @@ var TundraSettingTab = class extends import_obsidian13.PluginSettingTab {
         (_h = (_g = this.plugin.support).addDebugSetting) == null ? void 0 : _h.call(_g, containerEl);
         const diagnosticStage13 = (_k = (_j = (_i = diagnostics) == null ? void 0 : _i.start) == null ? void 0 : _j.call(_i, "settings.render.stage_1")) != null ? _k : (() => {
         });
-        containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
+        containerEl.createEl("h2", { text: "Tundra AI Frontmatter Wrangler" });
         diagnosticStage13();
         const diagnosticStage14 = (_n = (_m = (_l = diagnostics) == null ? void 0 : _l.start) == null ? void 0 : _m.call(_l, "settings.render.stage_2")) != null ? _n : (() => {
         });
@@ -3823,7 +3823,7 @@ var WranglerModal = class extends import_obsidian13.Modal {
     const diagnosticAction67 = () => {
       const c = this.contentEl;
       c.empty();
-      c.createEl("div", { cls: "tundra-header", text: "Tundra Frontmatter Wrangler" });
+      c.createEl("div", { cls: "tundra-header", text: "Tundra AI Frontmatter Wrangler" });
       const account = c.createDiv("tundra-account-guidance");
       this.plugin.addAccountGuidance(account);
       const body = c.createDiv("tundra-body");

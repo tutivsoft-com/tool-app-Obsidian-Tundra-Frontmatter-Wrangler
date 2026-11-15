@@ -1,4 +1,4 @@
-# Tundra Frontmatter Wrangler
+# Tundra AI Frontmatter Wrangler
 
 Apply the existing frontmatter and tag operations to selected notes.
 
@@ -22,9 +22,9 @@ Uncertain older billing records are retained and are never replayed as new v2 ch
 
 ## Release
 
-Version 3.6.73: All eight local frontmatter and tag operations retain exact rollback. AI and folder operations include current diagnostics and account feedback.
+Version 3.6.74: All eight local frontmatter and tag operations retain exact rollback. AI and folder operations include current diagnostics and account feedback.
 
-Obsidian Community release **3.6.73** requires Obsidian **1.5.0** or later. [GitHub release](https://github.com/tutivsoft-com/tool-app-Obsidian-Tundra-Frontmatter-Wrangler/releases/tag/3.6.73).
+Version **3.6.74** requires Obsidian **1.5.0** or later.
 
 ## Support
 

@@ -41,7 +41,7 @@ let diagnosticStartupEnd: () => void = () => {};
 const diagnosticEnd1 = diagnostics?.start?.("main.onload") ?? (() => {});
 try {
 
-    this.support = new PluginSupport(this, { name: "Tundra Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in Settings to preview and confirm changes before applying a batch."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy diagnostic log"], troubleshooting: ["Use Copy diagnostic log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
+    this.support = new PluginSupport(this, { name: "Tundra AI Frontmatter Wrangler", summary: "Run configured frontmatter changes directly, with optional review and rollback.", quickStart: ["Set a default operation and its values in plugin settings.", "Choose Apply configured operation for the current note or folder.", "Enable review in Settings to preview and confirm changes before applying a batch."], commands: ["Apply configured operation to current note", "Apply configured operation to current folder", "Open frontmatter wrangler", "Open documentation", "Copy diagnostic log"], troubleshooting: ["Use Copy diagnostic log before reporting a problem.", "Reopen the wrangler if a note changes while the operation is running."] });
     this.support.start();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 diagnosticStartupEnd = diagnostics?.start?.("startup.initialize") ?? (() => {});
@@ -175,7 +175,7 @@ diagnosticStage12();
 this.plugin.support.addDebugSetting?.(containerEl);
 
     const diagnosticStage13 = diagnostics?.start?.("settings.render.stage_1") ?? (() => {});
-containerEl.createEl("h2", { text: "Tundra Frontmatter Wrangler" });
+containerEl.createEl("h2", { text: "Tundra AI Frontmatter Wrangler" });
 diagnosticStage13();
 
     const diagnosticStage14 = diagnostics?.start?.("settings.render.stage_2") ?? (() => {});
@@ -475,7 +475,7 @@ const diagnosticAction67 = () => {
 
     const c = this.contentEl;
     c.empty();
-    c.createEl("div", { cls: "tundra-header", text: "Tundra Frontmatter Wrangler" });
+    c.createEl("div", { cls: "tundra-header", text: "Tundra AI Frontmatter Wrangler" });
     const account = c.createDiv("tundra-account-guidance");
     this.plugin.addAccountGuidance(account);
     const body = c.createDiv("tundra-body");
