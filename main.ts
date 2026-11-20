@@ -879,6 +879,7 @@ diagnostics.failure("main.caught_61", caughtError60); /* The apply loop reports 
     const reservation = await reserveUse(this.plugin);
     if (!reservation) { this.plugin.support.warn("apply.authorization_failed", { outcome: "unavailable" }); new Notice("Tundra billing authorization failed. No notes were changed.", 5000); return null; }
     this.plugin.support.info("apply.authorized", { authorizationSource: reservation.source, total: this.plans.length });
+    const previousBatch = this.plugin.settings.lastBatch;
     const batch: Batch = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), operation: this.operation, files: [], summary: { changed: 0, skipped: 0, failed: 0, unchanged: 0 } };
     for (let i = 0; i < this.plans.length; i++) {
       if (isCancelled?.()) break;
@@ -892,7 +893,11 @@ diagnostics.failure("main.caught_61", caughtError60); /* The apply loop reports 
         batch.files.push({ path: plan.path, original: plan.before, after: plan.after });
         this.plugin.settings.lastBatch = batch;
         await this.plugin.saveSettings();
-        await this.app.vault.modify(file, plan.after);
+        if (!await replaceIfCurrent(this.app, file, plan.before, plan.after)) {
+          batch.files.pop();
+          batch.summary.skipped++;
+          continue;
+        }
         if (await this.app.vault.read(file) !== plan.after) throw new Error("Write verification failed.");
         batch.summary.changed++;
       } catch (caughtError62) {
@@ -902,7 +907,7 @@ diagnostics.failure("main.caught_63", caughtError62); batch.summary.failed++; }
       const billingResult = await reservation.commit();
       if (billingResult.kind === "pending") new Notice("Tundra changes applied. Billing is pending and will retry automatically.", 5000);
     } else await reservation.rollback();
-    this.plugin.settings.lastBatch = batch;
+    this.plugin.settings.lastBatch = batch.files.length ? batch : previousBatch;
     await this.plugin.saveSettings();
     this.plugin.support.info("apply.completed", { total: this.plans.length, changed: batch.summary.changed, skipped: batch.summary.skipped, failed: batch.summary.failed, unchanged: batch.summary.unchanged, cancelled: !!isCancelled?.() });
     return await (batch);
@@ -987,10 +992,24 @@ diagnostics.failure("main.caught_68", caughtError67); throw new Error("The AI re
 
 } catch (diagnosticError98) { diagnostics?.failure?.("main.requestAiFrontmatter", diagnosticError98); throw diagnosticError98; } finally { diagnosticEnd98(); }
 }
+async function replaceIfCurrent(app: App, file: TFile, expected: string, replacement: string): Promise<boolean> {
+  const stale = new Error("Note changed");
+  try {
+    await app.vault.process(file, current => {
+      if (current !== expected) throw stale;
+      return replacement;
+    });
+    return true;
+  } catch (error) {
+    if (error === stale) return false;
+    throw error;
+  }
+}
+
 async function rollback(app: App, plugin: TundraPlugin) {
 const diagnosticEnd99 = diagnostics?.start?.("main.rollback") ?? (() => {});
 try {
- const batch = plugin.settings.lastBatch; if (!batch) { plugin.support.warn("rollback.unavailable"); new Notice("No saved changes are available to restore."); return; } plugin.support.info("rollback.started", { total: batch.files.length }); let restored = 0; let skipped = 0; for (const entry of batch.files) { const file = app.vault.getAbstractFileByPath(entry.path); if (!(file instanceof TFile)) { skipped++; continue; } try { const current = await app.vault.read(file); if (entry.after !== undefined && current !== entry.after) { skipped++; continue; } await app.vault.modify(file, entry.original); restored++; } catch (caughtError69) {
+ const batch = plugin.settings.lastBatch; if (!batch) { plugin.support.warn("rollback.unavailable"); new Notice("No saved changes are available to restore."); return; } plugin.support.info("rollback.started", { total: batch.files.length }); let restored = 0; let skipped = 0; for (const entry of batch.files) { const file = app.vault.getAbstractFileByPath(entry.path); if (!(file instanceof TFile)) { skipped++; continue; } try { const expected = entry.after ?? await app.vault.read(file); if (await replaceIfCurrent(app, file, expected, entry.original)) restored++; else skipped++; } catch (caughtError69) {
 diagnostics.failure("main.caught_70", caughtError69); skipped++; } } plugin.support.info("rollback.completed", { total: batch.files.length, restored, skipped }); new Notice(`Restored ${restored} of ${batch.files.length} notes${skipped ? `; ${skipped} skipped because they changed or disappeared` : ""}.`);
 } catch (diagnosticError99) { diagnostics?.failure?.("main.rollback", diagnosticError99); throw diagnosticError99; } finally { diagnosticEnd99(); }
 }

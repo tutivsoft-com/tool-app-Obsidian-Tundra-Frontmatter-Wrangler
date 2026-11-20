@@ -20,12 +20,8 @@ Account requests send authentication and billing information to Constance. Passw
 
 Uncertain older billing records are retained and are never replayed as new v2 charges. Connect the original account and contact support if an earlier operation needs recovery.
 
-## Release
+## Version 3.6.75
 
-Version 3.6.74: All eight local frontmatter and tag operations retain exact rollback. AI and folder operations include current diagnostics and account feedback.
+Preserve YAML values and protect frontmatter writes from concurrent edits.
 
-Version **3.6.74** requires Obsidian **1.5.0** or later.
-
-## Support
-
-Use the plugin's Help or Open documentation command and the support links in its manifest. For a billing problem, retain the original purchase or operation identity and use the account portal. Do not share passwords or session tokens.
+Requires Obsidian 1.5.0 or later. [GitHub releases](https://github.com/tutivsoft-com/tool-app-Obsidian-Tundra-Frontmatter-Wrangler/releases).
